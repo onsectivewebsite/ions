@@ -16,6 +16,7 @@ COPY packages/tenancy/package.json packages/tenancy/
 COPY packages/ui/package.json packages/ui/
 COPY packages/integrations/stripe/package.json packages/integrations/stripe/
 COPY packages/integrations/r2/package.json packages/integrations/r2/
+COPY packages/integrations/twilio/package.json packages/integrations/twilio/
 RUN pnpm install --frozen-lockfile
 
 # ─── builder ───────────────────────────────────────────────────────────────
