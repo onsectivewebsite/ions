@@ -28,7 +28,7 @@ export const appRouter = router({
   audit: auditRouter,
   lead: leadRouter,
   apiKey: apiKeyRouter,
-  call: callRouter,
+  calls: callRouter,
   sms: smsRouter,
   twilioConfig: twilioConfigRouter,
 });
