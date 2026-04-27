@@ -13,6 +13,7 @@ import { appRouter } from './router.js';
 import { logger } from './logger.js';
 import { redis } from './redis.js';
 import { stripeWebhookHandler } from './webhooks/stripe.js';
+import { leadsIngestHandler } from './routes/leads-ingest.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
 const env = loadEnv();
@@ -32,6 +33,13 @@ app.post(
   '/api/v1/webhooks/stripe',
   express.raw({ type: 'application/json', limit: '1mb' }),
   stripeWebhookHandler,
+);
+
+// Public lead ingest endpoint — bearer auth via firm API key.
+app.post(
+  '/api/v1/leads/ingest',
+  express.json({ limit: '256kb' }),
+  leadsIngestHandler,
 );
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

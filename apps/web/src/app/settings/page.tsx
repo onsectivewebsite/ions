@@ -104,6 +104,12 @@ export default function SettingsIndexPage() {
       title: 'Billing',
       description: 'Plan, payment method, invoices, and seat usage.',
     });
+    tiles.push({
+      href: '/settings/integrations/api-keys',
+      icon: KeyRound,
+      title: 'API keys',
+      description: 'Bearer tokens for posting leads from external systems.',
+    });
   }
 
   return (

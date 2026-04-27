@@ -10,6 +10,7 @@ import { inviteRouter } from './routers/invite.js';
 import { roleRouter } from './routers/role.js';
 import { auditRouter } from './routers/audit.js';
 import { leadRouter } from './routers/lead.js';
+import { apiKeyRouter } from './routers/api-key.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -23,6 +24,7 @@ export const appRouter = router({
   role: roleRouter,
   audit: auditRouter,
   lead: leadRouter,
+  apiKey: apiKeyRouter,
 });
 
 export type AppRouter = typeof appRouter;
