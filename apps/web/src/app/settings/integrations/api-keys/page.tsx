@@ -241,7 +241,7 @@ export default function ApiKeysPage() {
           <Card>
             <CardTitle>Quick start — POST a lead</CardTitle>
             <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-              Once you've created a key, your website / Zapier / lead-gen tool can post leads to
+              Once you&apos;ve created a key, your website / Zapier / lead-gen tool can post leads to
               your firm. Replace <code>YOUR_KEY</code> with the key below (revealed once on creation).
             </p>
             <pre className="mt-3 overflow-x-auto rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] p-3 text-xs">
@@ -261,7 +261,7 @@ export default function ApiKeysPage() {
             </pre>
             <p className="mt-3 text-xs text-[var(--color-text-muted)]">
               Returns <code>201 {'{'} id, assignedToId {'}'}</code> on success. Lead is auto-distributed
-              round-robin to an active TELECALLER in the target branch. Specify <code>"branchId"</code> in
+              round-robin to an active TELECALLER in the target branch. Specify <code>{'"branchId"'}</code> in
               the body to scope to a specific branch — otherwise firm-wide pool.
             </p>
           </Card>
