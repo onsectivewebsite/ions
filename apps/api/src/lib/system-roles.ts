@@ -38,6 +38,9 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       documents: { read: 'branch', write: 'branch', delete: 'branch' },
       calls: { read: 'branch', write: 'branch', delete: false },
       campaigns: { read: 'branch', write: 'branch', delete: false },
+      leadRules: { read: 'branch', write: false, delete: false },
+      reports: { read: 'branch', write: false, delete: false },
+      intake: { read: 'branch', write: 'branch', delete: false },
       // Phase 2 administrative scopes — branch managers can run their branch.
       users: { read: 'branch', write: 'branch', delete: 'branch' },
       branches: { read: 'branch', write: false, delete: false },
@@ -55,6 +58,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       cases: { read: 'assigned', write: 'assigned', delete: false },
       documents: { read: 'case', write: 'case', delete: false },
       calls: { read: 'own', write: 'own', delete: false },
+      intake: { read: 'branch', write: false, delete: false },
     },
   },
   {
@@ -65,6 +69,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       cases: { read: 'assigned', write: 'assigned', delete: false },
       documents: { read: 'case', write: 'case', delete: false },
       calls: { read: 'own', write: 'own', delete: false },
+      intake: { read: 'branch', write: 'branch', delete: false },
     },
   },
   {
@@ -98,6 +103,8 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       leads: { read: 'branch', write: 'own', delete: false },
       clients: { read: 'branch', write: 'branch', delete: false },
       appointments: { read: 'branch', write: 'branch', delete: false },
+      // Receptionist runs the walk-in intake flow.
+      intake: { read: 'branch', write: 'branch', delete: false },
     },
   },
 ];

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  ClipboardList,
   CreditCard,
   Facebook,
   KeyRound,
@@ -137,6 +138,12 @@ export default function SettingsIndexPage() {
       icon: Workflow,
       title: 'Lead routing rules',
       description: 'Auto-assign inbound leads by source, language, branch, or hour.',
+    });
+    tiles.push({
+      href: '/settings/intake-forms',
+      icon: ClipboardList,
+      title: 'Intake forms',
+      description: 'Per-case-type forms used during reception walk-ins.',
     });
   }
 

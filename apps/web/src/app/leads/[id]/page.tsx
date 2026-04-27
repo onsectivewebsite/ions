@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Ban,
   Calendar,
+  ClipboardList,
   Mail,
   MessageSquare,
   Phone,
@@ -28,6 +29,7 @@ import {
 import { rpcMutation, rpcQuery } from '../../../lib/api';
 import { getAccessToken } from '../../../lib/session';
 import { AppShell, type ShellUser } from '../../../components/AppShell';
+import { IntakeForm, type IntakeField } from '../../../components/intake/IntakeForm';
 
 type LeadStatus = 'NEW' | 'CONTACTED' | 'FOLLOWUP' | 'INTERESTED' | 'BOOKED' | 'CONVERTED' | 'LOST' | 'DNC';
 
@@ -148,6 +150,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   const [assignOpen, setAssignOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
   const [smsOpen, setSmsOpen] = useState(false);
+  const [intakeOpen, setIntakeOpen] = useState(false);
 
   async function refresh(): Promise<void> {
     const token = getAccessToken();
@@ -316,7 +319,15 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               <Button variant="secondary" size="sm" disabled title="Email composer ships in a later slice">
                 <Mail size={14} /> Email
               </Button>
-              <Button variant="secondary" size="sm" disabled title="Slice 4 (intake + appointments)">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIntakeOpen(true)}
+                title="Fill an intake form for this lead"
+              >
+                <ClipboardList size={14} /> Start intake
+              </Button>
+              <Button variant="secondary" size="sm" disabled title="Slice 4.2 (appointments)">
                 <Calendar size={14} /> Book consult
               </Button>
               <div className="ml-auto flex gap-2">
@@ -467,6 +478,27 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             onClose={() => setSmsOpen(false)}
             onSaved={async (msg) => {
               setSmsOpen(false);
+              setInfo(msg);
+              await refresh();
+            }}
+            onError={(msg) => setError(msg)}
+          />
+        ) : null}
+
+        {intakeOpen ? (
+          <IntakeDialog
+            leadId={id}
+            initialCaseType={lead.caseInterest ?? null}
+            initialValues={{
+              first_name: lead.firstName ?? '',
+              last_name: lead.lastName ?? '',
+              phone: lead.phone ?? '',
+              email: lead.email ?? '',
+              language: lead.language ?? '',
+            }}
+            onClose={() => setIntakeOpen(false)}
+            onSaved={async (msg) => {
+              setIntakeOpen(false);
               setInfo(msg);
               await refresh();
             }}
@@ -852,6 +884,132 @@ function ReassignDialog({
           </div>
         </div>
       </Card>
+    </div>
+  );
+}
+
+// ─── Intake modal ─────────────────────────────────────────────────────────
+
+type IntakeTemplate = {
+  id: string;
+  name: string;
+  caseType: string;
+  description: string | null;
+  fieldsJson: IntakeField[];
+};
+
+function IntakeDialog({
+  leadId,
+  initialCaseType,
+  initialValues,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  leadId: string;
+  initialCaseType: string | null;
+  initialValues: Record<string, unknown>;
+  onClose: () => void;
+  onSaved: (msg: string) => void | Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const [templates, setTemplates] = useState<IntakeTemplate[] | null>(null);
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const t = getAccessToken();
+    rpcQuery<IntakeTemplate[]>('intakeTemplate.list', undefined, { token: t })
+      .then((all) => {
+        const active = all.filter((x) => x.fieldsJson && Array.isArray(x.fieldsJson));
+        setTemplates(active);
+        // Default to a template that matches the lead's caseInterest, if any.
+        const match = initialCaseType
+          ? active.find((x) => x.caseType === initialCaseType && x.fieldsJson.length > 0)
+          : null;
+        if (match) setPickedId(match.id);
+        else if (active.length === 1) setPickedId(active[0]!.id);
+      })
+      .catch((e) => onError(e instanceof Error ? e.message : 'Failed to load templates'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const picked = templates?.find((t) => t.id === pickedId) ?? null;
+
+  async function submit(values: Record<string, unknown>): Promise<void> {
+    if (!picked) return;
+    setBusy(true);
+    try {
+      const t = getAccessToken();
+      await rpcMutation('intake.submit', { templateId: picked.id, leadId, values }, { token: t });
+      await onSaved('Intake submitted.');
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Submit failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Start intake</h2>
+          <button
+            onClick={onClose}
+            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          >
+            Close
+          </button>
+        </div>
+
+        {templates === null ? (
+          <Skeleton className="h-32" />
+        ) : templates.length === 0 ? (
+          <div className="rounded-[var(--radius-md)] border border-[var(--color-border-muted)] p-4 text-sm text-[var(--color-text-muted)]">
+            No intake templates yet. Ask a firm admin to create one in{' '}
+            <Link
+              href="/settings/intake-forms"
+              className="text-[var(--color-primary)] hover:underline"
+            >
+              Settings → Intake forms
+            </Link>
+            .
+          </div>
+        ) : (
+          <>
+            <div className="mb-4">
+              <label className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+                Template
+              </label>
+              <select
+                className="mt-1 h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm"
+                value={pickedId ?? ''}
+                onChange={(e) => setPickedId(e.target.value || null)}
+              >
+                <option value="">Select template…</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.caseType.replace('_', ' ')})
+                  </option>
+                ))}
+              </select>
+              {picked?.description ? (
+                <p className="mt-2 text-xs text-[var(--color-text-muted)]">{picked.description}</p>
+              ) : null}
+            </div>
+
+            {picked ? (
+              <IntakeForm
+                fields={picked.fieldsJson}
+                initial={initialValues}
+                busy={busy}
+                onSubmit={submit}
+              />
+            ) : null}
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -19,6 +19,9 @@ import { tiktokConfigRouter } from './routers/tiktok-config.js';
 import { leadRuleRouter } from './routers/lead-rule.js';
 import { campaignRouter } from './routers/campaign.js';
 import { kpiRouter } from './routers/kpi.js';
+import { clientRouter } from './routers/client.js';
+import { intakeTemplateRouter } from './routers/intake-template.js';
+import { intakeRouter } from './routers/intake.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -41,6 +44,9 @@ export const appRouter = router({
   leadRule: leadRuleRouter,
   campaign: campaignRouter,
   kpi: kpiRouter,
+  client: clientRouter,
+  intakeTemplate: intakeTemplateRouter,
+  intake: intakeRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -1,7 +1,7 @@
 'use client';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, Suspense, type FormEvent, type ReactElement } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Inbox } from 'lucide-react';
 import {
   Button,
@@ -26,17 +26,29 @@ type Me = {
   tenant: { displayName: string; branding: Branding };
 };
 
-export default function NewLeadPage() {
+// useSearchParams() forces this page out of Next's static prerender, so we
+// wrap the body in <Suspense> per Next 15's CSR-bailout requirement.
+export default function NewLeadPage(): ReactElement {
+  return (
+    <Suspense fallback={null}>
+      <NewLeadInner />
+    </Suspense>
+  );
+}
+
+function NewLeadInner() {
   const router = useRouter();
+  const params = useSearchParams();
   const [me, setMe] = useState<Me | null>(null);
   const [branches, setBranches] = useState<Branch[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  // Walk-in flow deep-links here with ?phone=…&firstName=…
+  const [firstName, setFirstName] = useState(params.get('firstName') ?? '');
+  const [lastName, setLastName] = useState(params.get('lastName') ?? '');
+  const [email, setEmail] = useState(params.get('email') ?? '');
+  const [phone, setPhone] = useState(params.get('phone') ?? '');
   const [source, setSource] = useState('manual');
   const [language, setLanguage] = useState('');
   const [caseInterest, setCaseInterest] = useState('');

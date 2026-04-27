@@ -8,6 +8,7 @@ import {
   Building,
   Building2,
   ChevronDown,
+  ClipboardList,
   CreditCard,
   History,
   Home,
@@ -71,6 +72,7 @@ const PLATFORM_NAV: NavItem[] = [
 
 const FIRM_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Home },
+  { href: '/walkin', label: 'Walk-in', icon: ClipboardList, permit: { resource: 'clients', action: 'read' } },
   { href: '/queue', label: 'My queue', icon: Inbox, permit: { resource: 'leads', action: 'read' } },
   { href: '/leads', label: 'Leads', icon: Users, permit: { resource: 'leads', action: 'read' } },
   { href: '/calls', label: 'Calls', icon: Phone, permit: { resource: 'calls', action: 'read' } },

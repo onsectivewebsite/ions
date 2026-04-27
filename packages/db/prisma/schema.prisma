@@ -82,6 +82,10 @@ model Tenant {
   campaigns       Campaign[]
   leadRules       LeadRule[]
   apiKeys         ApiKey[]
+  // Phase 4 back-relations
+  clients              Client[]
+  intakeFormTemplates  IntakeFormTemplate[]
+  intakeSubmissions    IntakeSubmission[]
 
   @@index([status])
 }
@@ -118,6 +122,7 @@ model Branch {
 
   users     User[]  @relation("BranchUsers")
   leads     Lead[]
+  clients   Client[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -486,4 +491,86 @@ model ApiKey {
   lastUsedAt  DateTime?
 
   @@index([tenantId, revokedAt])
+}
+
+// ─── Phase 4: Clients + Intake forms ────────────────────────────────────────
+
+model Client {
+  id              String     @id @default(uuid()) @db.Uuid
+  tenantId        String     @db.Uuid
+  tenant          Tenant     @relation(fields: [tenantId], references: [id])
+  branchId        String?    @db.Uuid
+  branch          Branch?    @relation(fields: [branchId], references: [id])
+  // Identity — phone is the canonical key (per docs/01-domain.md invariant).
+  firstName       String?
+  lastName        String?
+  email           String?    @db.Citext
+  phone           String     // E.164 preferred — required for receptionist match flow
+  language        String?
+  // Linkage back to the lead that created this client (for traceability).
+  primaryLeadId   String?    @db.Uuid
+  // Notes are receptionist/admin scratch — case-management notes live elsewhere.
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  deletedAt       DateTime?
+
+  intakeSubmissions IntakeSubmission[]
+
+  // One canonical client row per (firm, phone). Re-arrival lookups hit this index.
+  @@unique([tenantId, phone])
+  @@index([tenantId, lastName])
+  @@index([tenantId, email])
+}
+
+// IntakeFormTemplate — per-firm, per-case-type form schema.
+// `fieldsJson` shape: [{ key, label, type, required?, placeholder?, helpText?, options?, maxLength? }]
+// type ∈ 'text'|'email'|'phone'|'date'|'number'|'textarea'|'select'|'multiselect'|'checkbox'|'file'.
+// Built-in case types: 'work_permit', 'study_permit', 'pr', 'visitor_visa',
+// 'citizenship', 'lmia', 'other'. Stored as a string (not enum) so firms can
+// extend without a schema migration.
+model IntakeFormTemplate {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String     @db.Uuid
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  caseType    String
+  name        String
+  description String?
+  fieldsJson  Json
+  isActive    Boolean    @default(true)
+  createdBy   String     @db.Uuid
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  submissions IntakeSubmission[]
+
+  @@index([tenantId, caseType, isActive])
+}
+
+// IntakeSubmission — the filled-out form. Created either:
+//   - Inline by a staff member (submittedBy = userId, publicTokenHash null)
+//   - Self-served by a client via /intake/<token> (submittedBy null, publicSubmittedAt set)
+// We carry leadId AND clientId on purpose: a submission against a brand-new walk-in
+// starts with leadId only; once we promote them to a Client (after intake completes)
+// we backfill clientId so client history queries see it.
+model IntakeSubmission {
+  id                   String     @id @default(uuid()) @db.Uuid
+  tenantId             String     @db.Uuid
+  tenant               Tenant     @relation(fields: [tenantId], references: [id])
+  templateId           String     @db.Uuid
+  template             IntakeFormTemplate @relation(fields: [templateId], references: [id])
+  caseType             String
+  leadId               String?    @db.Uuid
+  clientId             String?    @db.Uuid
+  client               Client?    @relation(fields: [clientId], references: [id])
+  fieldsJson           Json
+  submittedBy          String?    @db.Uuid
+  submittedAt          DateTime   @default(now())
+  // Self-fill via public link (4.x slice; nullable for inline submissions).
+  publicTokenHash      String?    @unique
+  publicTokenExpiresAt DateTime?
+  publicSubmittedAt    DateTime?
+
+  @@index([tenantId, leadId])
+  @@index([tenantId, clientId, submittedAt])
 }
