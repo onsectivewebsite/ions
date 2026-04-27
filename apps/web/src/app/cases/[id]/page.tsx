@@ -29,6 +29,8 @@ import { AppShell, type ShellUser } from '../../../components/AppShell';
 import { useRealtime } from '../../../lib/realtime';
 import { RetainerCard } from '../../../components/retainer/RetainerCard';
 import { DocumentsCard } from '../../../components/documents/DocumentsCard';
+import { LawyerReviewCard } from '../../../components/cases/LawyerReviewCard';
+import { IrccLogCard } from '../../../components/cases/IrccLogCard';
 
 type CaseStatus =
   | 'PENDING_RETAINER'
@@ -367,6 +369,26 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                 caseStatus={c.status}
                 clientPhone={c.client.phone}
                 clientEmail={c.client.email}
+                onError={setError}
+              />
+
+              {/* Lawyer review pane (Phase 5.4) — only renders at
+                  PENDING_LAWYER_APPROVAL. Pre-flight checklist + attestation
+                  approval that flips to SUBMITTED_TO_IRCC. */}
+              <LawyerReviewCard
+                caseId={id}
+                caseStatus={c.status}
+                lawyer={c.lawyer}
+                onChanged={refresh}
+                onError={setError}
+              />
+
+              {/* IRCC correspondence log (Phase 5.4) — visible after
+                  submission, or whenever there's at least one entry. */}
+              <IrccLogCard
+                caseId={id}
+                caseStatus={c.status}
+                onChanged={refresh}
                 onError={setError}
               />
 

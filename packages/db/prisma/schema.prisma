@@ -94,6 +94,7 @@ model Tenant {
   documentChecklistTemplates DocumentChecklistTemplate[]
   documentCollections        DocumentCollection[]
   documentUploads            DocumentUpload[]
+  irccCorrespondence         IrccCorrespondence[]
 
   @@index([status])
 }
@@ -904,4 +905,40 @@ model DocumentUpload {
 
   @@index([tenantId, caseId, itemKey, supersededAt])
   @@index([collectionId])
+}
+
+// ─── Phase 5.4: IRCC correspondence log ────────────────────────────────────
+
+// IrccCorrespondence — chronological per-case log of interactions with
+// IRCC. Manual: there's no public IRCC API to scrape. Filer/lawyer adds
+// entries as events happen so the case timeline tells the full story.
+//
+// Type vocabulary (string for forward-compat):
+//   'submission'             — file uploaded to IRCC portal
+//   'rfe_received'           — IRCC requested additional evidence
+//   'rfe_responded'          — firm responded to RFE
+//   'biometrics_requested'   — IRCC biometrics letter issued
+//   'biometrics_completed'   — client completed biometrics
+//   'interview_scheduled'    — IRCC interview booked
+//   'interview_completed'    — interview happened
+//   'medical_requested'      — IRCC medical exam letter
+//   'medical_completed'
+//   'decision'               — final decision (approved/refused/withdrawn/returned)
+//   'other'
+model IrccCorrespondence {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @db.Uuid
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  caseId      String    @db.Uuid
+  type        String
+  occurredAt  DateTime
+  notes       String?
+  // Optional FK into a DocumentUpload (e.g. RFE letter, decision letter).
+  // Soft FK — we don't enforce referential integrity at the model level
+  // because the upload may belong to any collection on the case.
+  attachmentUploadId String? @db.Uuid
+  recordedById String   @db.Uuid
+  createdAt   DateTime  @default(now())
+
+  @@index([tenantId, caseId, occurredAt])
 }

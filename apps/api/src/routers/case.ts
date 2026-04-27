@@ -460,6 +460,329 @@ export const caseRouter = router({
       });
       return updated;
     }),
+
+  // Pre-flight checks the lawyer sees before the Approve button. Returns
+  // a structured readiness payload so the UI can show ✓ / ✗ per gate
+  // without re-querying scattered procedures.
+  reviewReadiness: requirePermission('cases', 'read')
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const c = await ctx.prisma.case.findFirst({
+        where: { id: input.id, ...caseReadWhere(ctx) },
+      });
+      if (!c) throw new TRPCError({ code: 'NOT_FOUND' });
+      const retainer = await ctx.prisma.retainerAgreement.findUnique({
+        where: { caseId: c.id },
+      });
+      const collection = await ctx.prisma.documentCollection.findUnique({
+        where: { caseId: c.id },
+      });
+      const uploads = collection
+        ? await ctx.prisma.documentUpload.findMany({
+            where: { collectionId: collection.id, supersededAt: null },
+            select: { itemKey: true },
+          })
+        : [];
+      const items = (collection?.itemsJson ?? []) as unknown as Array<{
+        key: string;
+        label: string;
+        required?: boolean;
+      }>;
+      const uploadedKeys = new Set(uploads.map((u) => u.itemKey));
+      const missingRequired = items
+        .filter((it) => it.required && !uploadedKeys.has(it.key))
+        .map((it) => ({ key: it.key, label: it.label }));
+      const target = c.totalFeeCents ?? c.retainerFeeCents ?? null;
+
+      return {
+        retainerSigned: retainer?.status === 'SIGNED',
+        feesCleared: c.feesCleared,
+        feesTarget: target,
+        feesPaid: c.amountPaidCents,
+        documentsLocked: collection?.status === 'LOCKED',
+        documentsCollectionExists: !!collection,
+        missingRequired,
+        readyForApproval:
+          retainer?.status === 'SIGNED' &&
+          c.feesCleared &&
+          collection?.status === 'LOCKED' &&
+          missingRequired.length === 0,
+        // Surface caller-relative permission so the UI can hide the form
+        // for non-lawyer roles without a separate roundtrip.
+        viewerIsAssignedLawyer: ctx.perms.userId === c.lawyerId,
+      };
+    }),
+
+  /**
+   * Lawyer-approves the file at PENDING_LAWYER_APPROVAL → SUBMITTED_TO_IRCC.
+   * Mirrors the retainer approval pattern: typed name must match the
+   * lawyer of record exactly, attestation captured (typed name + IP + UA),
+   * pre-flight checks re-verified server-side (UI may be stale).
+   *
+   * The accompanying timestamps + a SUBMISSION IrccCorrespondence row are
+   * created atomically.
+   */
+  lawyerApprove: requirePermission('cases', 'write')
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        typedName: z.string().min(2).max(200),
+        attestation: z.literal(true),
+        irccPortalDate: z.string().datetime().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const c = await ctx.prisma.case.findFirst({
+        where: { id: input.id, ...caseReadWhere(ctx) },
+        include: { lawyer: true },
+      });
+      if (!c) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (c.status !== 'PENDING_LAWYER_APPROVAL') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Case must be PENDING_LAWYER_APPROVAL (currently ${c.status}).`,
+        });
+      }
+      if (ctx.scope !== 'tenant' && c.lawyerId !== ctx.perms.userId) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Only the assigned lawyer can approve this file.',
+        });
+      }
+      if (!c.feesCleared) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'All fees must be cleared before lawyer approval.',
+        });
+      }
+      const expected = c.lawyer.name.trim().toLowerCase();
+      if (input.typedName.trim().toLowerCase() !== expected) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Typed name must match the lawyer of record exactly: "${c.lawyer.name}".`,
+        });
+      }
+
+      const now = new Date();
+      const portalDate = input.irccPortalDate ? new Date(input.irccPortalDate) : now;
+      const [updated] = await ctx.prisma.$transaction([
+        ctx.prisma.case.update({
+          where: { id: c.id },
+          data: {
+            status: 'SUBMITTED_TO_IRCC',
+            lawyerApprovedAt: now,
+            submittedToIrccAt: now,
+            irccPortalDate: portalDate,
+          },
+        }),
+        ctx.prisma.irccCorrespondence.create({
+          data: {
+            tenantId: ctx.tenantId,
+            caseId: c.id,
+            type: 'submission',
+            occurredAt: portalDate,
+            notes: `File submitted by ${c.lawyer.name}.`,
+            recordedById: ctx.session.sub,
+          },
+        }),
+        ctx.prisma.auditLog.create({
+          data: {
+            tenantId: ctx.tenantId,
+            actorId: ctx.session.sub,
+            actorType: 'USER',
+            action: 'case.lawyerApprove',
+            targetType: 'Case',
+            targetId: c.id,
+            payload: { typedName: input.typedName, irccPortalDate: portalDate.toISOString() },
+            ip: ctx.ip,
+            userAgent: ctx.userAgent ?? null,
+          },
+        }),
+      ]);
+
+      void publishEvent(
+        { kind: 'tenant', tenantId: ctx.tenantId },
+        { type: 'case.status', caseId: c.id, status: 'SUBMITTED_TO_IRCC' },
+      );
+      return updated;
+    }),
+
+  /**
+   * Lawyer rejects the file at PENDING_LAWYER_APPROVAL, bouncing it back
+   * to PREPARING with a note for the filer. The note lands in IRCC
+   * correspondence as type='other' so it shows up on the case timeline.
+   */
+  requestRevision: requirePermission('cases', 'write')
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        notes: z.string().min(2).max(4000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const c = await ctx.prisma.case.findFirst({
+        where: { id: input.id, ...caseReadWhere(ctx) },
+      });
+      if (!c) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (c.status !== 'PENDING_LAWYER_APPROVAL') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Case must be PENDING_LAWYER_APPROVAL to request revisions.`,
+        });
+      }
+      if (ctx.scope !== 'tenant' && c.lawyerId !== ctx.perms.userId) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Only the assigned lawyer can request revisions.',
+        });
+      }
+      const [updated] = await ctx.prisma.$transaction([
+        ctx.prisma.case.update({
+          where: { id: c.id },
+          data: { status: 'PREPARING' },
+        }),
+        ctx.prisma.auditLog.create({
+          data: {
+            tenantId: ctx.tenantId,
+            actorId: ctx.session.sub,
+            actorType: 'USER',
+            action: 'case.requestRevision',
+            targetType: 'Case',
+            targetId: c.id,
+            payload: { notes: input.notes },
+            ip: ctx.ip,
+            userAgent: ctx.userAgent ?? null,
+          },
+        }),
+      ]);
+      void publishEvent(
+        { kind: 'tenant', tenantId: ctx.tenantId },
+        { type: 'case.status', caseId: c.id, status: 'PREPARING' },
+      );
+      return updated;
+    }),
+
+  // ─── IRCC correspondence log ───────────────────────────────────────────
+  irccList: requirePermission('cases', 'read')
+    .input(z.object({ caseId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const c = await ctx.prisma.case.findFirst({
+        where: { id: input.caseId, ...caseReadWhere(ctx) },
+        select: { id: true },
+      });
+      if (!c) throw new TRPCError({ code: 'NOT_FOUND' });
+      return ctx.prisma.irccCorrespondence.findMany({
+        where: { tenantId: ctx.tenantId, caseId: c.id },
+        orderBy: { occurredAt: 'desc' },
+        take: 200,
+      });
+    }),
+
+  irccRecord: requirePermission('cases', 'write')
+    .input(
+      z.object({
+        caseId: z.string().uuid(),
+        type: z.enum([
+          'submission',
+          'rfe_received',
+          'rfe_responded',
+          'biometrics_requested',
+          'biometrics_completed',
+          'interview_scheduled',
+          'interview_completed',
+          'medical_requested',
+          'medical_completed',
+          'decision',
+          'other',
+        ]),
+        occurredAt: z.string().datetime(),
+        notes: z.string().max(4000).optional(),
+        attachmentUploadId: z.string().uuid().optional(),
+        // For type='decision', also patch case.irccDecision in one shot.
+        decision: z.enum(['approved', 'refused', 'withdrawn', 'returned']).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const c = await ctx.prisma.case.findFirst({
+        where: { id: input.caseId, ...caseReadWhere(ctx) },
+      });
+      if (!c) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      const occurredAt = new Date(input.occurredAt);
+      const created = await ctx.prisma.irccCorrespondence.create({
+        data: {
+          tenantId: ctx.tenantId,
+          caseId: c.id,
+          type: input.type,
+          occurredAt,
+          notes: input.notes,
+          attachmentUploadId: input.attachmentUploadId,
+          recordedById: ctx.session.sub,
+        },
+      });
+
+      // type='decision' optionally patches case.irccDecision and bumps the
+      // case to COMPLETED if approved/refused/withdrawn/returned.
+      if (input.type === 'decision' && input.decision) {
+        await ctx.prisma.case.update({
+          where: { id: c.id },
+          data: {
+            irccDecision: input.decision,
+            ...(c.status === 'IN_REVIEW' || c.status === 'SUBMITTED_TO_IRCC'
+              ? { status: 'COMPLETED', completedAt: new Date() }
+              : {}),
+          },
+        });
+        void publishEvent(
+          { kind: 'tenant', tenantId: ctx.tenantId },
+          { type: 'case.status', caseId: c.id, status: 'COMPLETED' },
+        );
+      }
+
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'USER',
+          action: 'case.irccRecord',
+          targetType: 'IrccCorrespondence',
+          targetId: created.id,
+          payload: {
+            caseId: c.id,
+            type: input.type,
+            decision: input.decision ?? null,
+            attachmentUploadId: input.attachmentUploadId ?? null,
+          },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+      return created;
+    }),
+
+  irccDelete: requirePermission('cases', 'write')
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const e = await ctx.prisma.irccCorrespondence.findFirst({
+        where: { id: input.id, tenantId: ctx.tenantId },
+      });
+      if (!e) throw new TRPCError({ code: 'NOT_FOUND' });
+      await ctx.prisma.irccCorrespondence.delete({ where: { id: e.id } });
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'USER',
+          action: 'case.irccDelete',
+          targetType: 'IrccCorrespondence',
+          targetId: e.id,
+          payload: { caseId: e.caseId, type: e.type },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+      return { ok: true };
+    }),
 });
 
 /**
