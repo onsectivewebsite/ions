@@ -24,6 +24,7 @@ import {
 } from './webhooks/meta.js';
 import { tiktokLeadsWebhookHandler } from './webhooks/tiktok.js';
 import { leadsIngestHandler } from './routes/leads-ingest.js';
+import { streamHandler } from './routes/stream.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
 const env = loadEnv();
@@ -64,6 +65,10 @@ const adsBody = express.raw({ type: 'application/json', limit: '512kb' });
 app.get('/api/v1/webhooks/meta-leads', metaLeadsVerifyHandler);
 app.post('/api/v1/webhooks/meta-leads', adsBody, metaLeadsWebhookHandler);
 app.post('/api/v1/webhooks/tiktok-leads', adsBody, tiktokLeadsWebhookHandler);
+
+// SSE realtime stream — bearer token via ?token= since EventSource can't
+// set headers. Firm-scope only; auth is checked inside the handler.
+app.get('/api/v1/stream', streamHandler);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

@@ -11,6 +11,7 @@
  */
 import type { Prisma, PrismaClient } from '@onsecboad/db';
 import { resolveAssignment, type LeadRuleContext } from './lead-rules.js';
+import { publishEvent } from './realtime.js';
 import { logger } from '../logger.js';
 
 export type CreateLeadInput = {
@@ -136,6 +137,30 @@ export async function createLeadFromIngest(
     },
     'lead created via ingest',
   );
+
+  // Realtime fanout. Don't await — best-effort, never fail the ingest.
+  void publishEvent(
+    { kind: 'tenant', tenantId: input.tenantId },
+    {
+      type: 'lead.created',
+      leadId: lead.id,
+      source: input.source,
+      branchId: lead.branchId,
+    },
+  );
+  if (decision.assignedToId) {
+    void publishEvent(
+      { kind: 'user', tenantId: input.tenantId, userId: decision.assignedToId },
+      {
+        type: 'lead.assigned',
+        leadId: lead.id,
+        assignedToId: decision.assignedToId,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        phone: input.phone,
+      },
+    );
+  }
 
   return {
     leadId: lead.id,

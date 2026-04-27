@@ -14,6 +14,7 @@ import { verifyTwilioSignature } from '@onsecboad/twilio';
 import { prisma } from '@onsecboad/db';
 import { logger } from '../logger.js';
 import { getTwilioCreds } from '../lib/twilio-config.js';
+import { publishEvent } from '../lib/realtime.js';
 import { loadEnv } from '@onsecboad/config';
 
 const env = loadEnv();
@@ -108,6 +109,22 @@ export async function twilioVoiceStatusHandler(req: Request, res: Response): Pro
           ...(callStatus === 'completed' ? { endedAt: new Date() } : {}),
         },
       });
+      const cl = await prisma.callLog.findFirst({
+        where: { tenantId, twilioSid: callSid },
+        select: { id: true, agentId: true, leadId: true },
+      });
+      if (cl) {
+        void publishEvent(
+          { kind: 'tenant', tenantId },
+          {
+            type: 'call.status',
+            callId: cl.id,
+            status: callStatus,
+            agentId: cl.agentId,
+            leadId: cl.leadId,
+          },
+        );
+      }
     }
     await markProcessed(`${callSid}-${callStatus}`);
   } catch (e) {
@@ -163,7 +180,7 @@ export async function twilioSmsIncomingHandler(req: Request, res: Response): Pro
     orderBy: { createdAt: 'desc' },
   });
 
-  await prisma.smsLog.create({
+  const sms = await prisma.smsLog.create({
     data: {
       tenantId,
       leadId: lead?.id,
@@ -175,6 +192,31 @@ export async function twilioSmsIncomingHandler(req: Request, res: Response): Pro
       status: 'received',
     },
   });
+
+  // Push to assigned agent (if the lead has one) AND firm-wide so reception/
+  // managers can see inbound replies in the activity feed.
+  void publishEvent(
+    { kind: 'tenant', tenantId },
+    {
+      type: 'sms.received',
+      smsId: sms.id,
+      leadId: lead?.id ?? null,
+      from,
+      bodyPreview: body.slice(0, 140),
+    },
+  );
+  if (lead?.assignedToId) {
+    void publishEvent(
+      { kind: 'user', tenantId, userId: lead.assignedToId },
+      {
+        type: 'sms.received',
+        smsId: sms.id,
+        leadId: lead.id,
+        from,
+        bodyPreview: body.slice(0, 140),
+      },
+    );
+  }
 
   await recordWebhook('twilio', 'sms.incoming', messageSid, params);
   await markProcessed(messageSid);

@@ -9,6 +9,7 @@ import { Prisma } from '@onsecboad/db';
 import { router } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
 import { pickAssignee } from '../lib/lead-distribute.js';
+import { publishEvent } from '../lib/realtime.js';
 import { logger } from '../logger.js';
 
 const leadStatusSchema = z.enum([
@@ -285,6 +286,19 @@ export const leadRouter = router({
           userAgent: ctx.userAgent ?? null,
         },
       });
+      if (input.userId) {
+        void publishEvent(
+          { kind: 'user', tenantId: ctx.tenantId, userId: input.userId },
+          {
+            type: 'lead.assigned',
+            leadId: lead.id,
+            assignedToId: input.userId,
+            firstName: lead.firstName ?? undefined,
+            lastName: lead.lastName ?? undefined,
+            phone: lead.phone ?? undefined,
+          },
+        );
+      }
       return { ok: true };
     }),
 
@@ -416,4 +430,82 @@ export const leadRouter = router({
       logger.info({ from: from.id, to: to.id }, 'lead merged');
       return { ok: true };
     }),
+
+  /**
+   * Telecaller "my queue" — single round-trip for the /queue dashboard.
+   * Returns the caller's open leads + today's stats + followups due.
+   * Honours own/branch/tenant scope (TELECALLER → only assignedTo=me).
+   */
+  myQueue: requirePermission('leads', 'read').query(async ({ ctx }) => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const now = new Date();
+
+    const baseWhere: Prisma.LeadWhereInput = {
+      tenantId: ctx.tenantId,
+      deletedAt: null,
+      assignedToId: ctx.perms.userId,
+    };
+
+    const [open, followups, callsToday, conversionsToday, smsTodayInbound] = await Promise.all([
+      ctx.prisma.lead.findMany({
+        where: {
+          ...baseWhere,
+          status: { in: ['NEW', 'CONTACTED', 'FOLLOWUP', 'INTERESTED'] },
+        },
+        orderBy: [{ status: 'asc' }, { priority: 'desc' }, { createdAt: 'desc' }],
+        take: 100,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          email: true,
+          status: true,
+          source: true,
+          language: true,
+          caseInterest: true,
+          followupDueAt: true,
+          lastContactedAt: true,
+          createdAt: true,
+        },
+      }),
+      ctx.prisma.lead.count({
+        where: {
+          ...baseWhere,
+          followupDueAt: { lte: now },
+          status: { in: ['CONTACTED', 'FOLLOWUP', 'INTERESTED'] },
+        },
+      }),
+      ctx.prisma.callLog.count({
+        where: { tenantId: ctx.tenantId, agentId: ctx.perms.userId, startedAt: { gte: startOfToday } },
+      }),
+      ctx.prisma.lead.count({
+        where: {
+          ...baseWhere,
+          status: { in: ['CONVERTED', 'BOOKED'] },
+          updatedAt: { gte: startOfToday },
+        },
+      }),
+      ctx.prisma.smsLog.count({
+        where: {
+          tenantId: ctx.tenantId,
+          direction: 'inbound',
+          createdAt: { gte: startOfToday },
+          lead: { is: { assignedToId: ctx.perms.userId } },
+        },
+      }),
+    ]);
+
+    return {
+      open,
+      stats: {
+        openCount: open.length,
+        followupsDue: followups,
+        callsToday,
+        conversionsToday,
+        smsInboundToday: smsTodayInbound,
+      },
+    };
+  }),
 });

@@ -11,6 +11,7 @@ import {
   CreditCard,
   History,
   Home,
+  Inbox,
   KeyRound,
   LogOut,
   Megaphone,
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react';
 import { Avatar, cn } from '@onsecboad/ui';
 import { Logo } from './Logo';
+import { Toaster } from './Toaster';
 import { rpcMutation, rpcQuery } from '../lib/api';
 import { getAccessToken, setAccessToken } from '../lib/session';
 
@@ -69,6 +71,7 @@ const PLATFORM_NAV: NavItem[] = [
 
 const FIRM_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Home },
+  { href: '/queue', label: 'My queue', icon: Inbox, permit: { resource: 'leads', action: 'read' } },
   { href: '/leads', label: 'Leads', icon: Users, permit: { resource: 'leads', action: 'read' } },
   { href: '/calls', label: 'Calls', icon: Phone, permit: { resource: 'calls', action: 'read' } },
   { href: '/marketing/campaigns', label: 'Campaigns', icon: Megaphone, permit: { resource: 'campaigns', action: 'read' } },
@@ -175,6 +178,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
         <TopBar user={user} onSignOut={signOut} />
         <main className="flex-1 px-8 py-8">{children}</main>
       </div>
+      {user.scope === 'firm' ? <Toaster /> : null}
     </div>
   );
 }
