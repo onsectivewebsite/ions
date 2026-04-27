@@ -1,0 +1,27 @@
+/* Base styles consumed by apps via `@onsecboad/ui/styles.css`. */
+:root {
+  color-scheme: light dark;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans, system-ui);
+  background: var(--color-bg, #fff);
+  color: var(--color-text, #111);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; }
+::selection { background: var(--color-primary, #b5132b); color: var(--color-text-on-primary, #fff); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

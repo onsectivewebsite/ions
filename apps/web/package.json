@@ -1,0 +1,40 @@
+{
+  "name": "@onsecboad/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint --max-warnings 0",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@onsecboad/auth": "workspace:*",
+    "@onsecboad/config": "workspace:*",
+    "@onsecboad/db": "workspace:*",
+    "@onsecboad/ui": "workspace:*",
+    "@simplewebauthn/browser": "^10.0.0",
+    "@stripe/react-stripe-js": "^3.0.0",
+    "@stripe/stripe-js": "^4.10.0",
+    "@trpc/client": "^11.0.0-rc.502",
+    "@trpc/server": "^11.0.0-rc.502",
+    "@types/node": "^20.12.0",
+    "lucide-react": "^0.460.0",
+    "next": "^15.0.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.13.0",
+    "eslint-config-next": "^15.0.3",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.0"
+  }
+}

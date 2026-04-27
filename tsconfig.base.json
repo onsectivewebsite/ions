@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "incremental": true,
+    "verbatimModuleSyntax": false,
+    "allowSyntheticDefaultImports": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@onsecboad/config": ["packages/config/src"],
+      "@onsecboad/db": ["packages/db/src"],
+      "@onsecboad/auth": ["packages/auth/src"],
+      "@onsecboad/tenancy": ["packages/tenancy/src"],
+      "@onsecboad/email": ["packages/email/src"],
+      "@onsecboad/ui": ["packages/ui/src"],
+      "@onsecboad/stripe": ["packages/integrations/stripe/src"],
+      "@onsecboad/r2": ["packages/integrations/r2/src"]
+    }
+  }
+}

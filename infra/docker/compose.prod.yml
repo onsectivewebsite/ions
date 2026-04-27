@@ -1,0 +1,130 @@
+# Production compose for Hostinger VPS + CloudPanel.
+#
+# CloudPanel acts as the public-facing reverse proxy + Let's Encrypt SSL
+# terminator. This compose binds every container port to 127.0.0.1 only,
+# so nothing is reachable from the internet except via CloudPanel's nginx.
+#
+# CloudPanel sites you'll create after `docker compose up -d`:
+#   1. onsective.cloud      → Reverse Proxy → http://127.0.0.1:3000
+#   2. api.onsective.cloud  → Reverse Proxy → http://127.0.0.1:4000
+# Both get a free Let's Encrypt cert from the panel's "Certificates" tab.
+#
+# Usage on the VPS:
+#   cd /home/<user>/onsecboad
+#   cp .env.production.example .env.production
+#   # fill in real secrets, then:
+#   docker compose -f infra/docker/compose.prod.yml --env-file .env.production up -d --build
+#   docker compose -f infra/docker/compose.prod.yml --env-file .env.production exec api pnpm --filter @onsecboad/db exec prisma migrate deploy
+#   docker compose -f infra/docker/compose.prod.yml --env-file .env.production exec api pnpm db:seed
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: onsec-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # Loopback only — nothing from outside the VPS can reach Postgres.
+    ports:
+      - '127.0.0.1:5433:5432'
+    volumes:
+      - onsec-pgdata:/var/lib/postgresql/data
+      - ../postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: onsec-redis-prod
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - onsec-redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    image: onsec-api:latest
+    container_name: onsec-api-prod
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      APP_URL: ${APP_URL}
+      PORTAL_URL: ${PORTAL_URL}
+      API_URL: ${API_URL}
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      ACCESS_TOKEN_TTL_SEC: ${ACCESS_TOKEN_TTL_SEC:-900}
+      REFRESH_TOKEN_TTL_SEC: ${REFRESH_TOKEN_TTL_SEC:-2592000}
+      ENCRYPTION_KEY_BASE64: ${ENCRYPTION_KEY_BASE64}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      EMAIL_FROM_DEFAULT: ${EMAIL_FROM_DEFAULT}
+      EMAIL_DRY_RUN: ${EMAIL_DRY_RUN:-false}
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      R2_REGION: ${R2_REGION:-auto}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_BUCKET: ${R2_BUCKET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_DRY_RUN: ${STRIPE_DRY_RUN:-false}
+      STRIPE_TRIAL_DAYS: ${STRIPE_TRIAL_DAYS:-14}
+      ENABLE_CRON: ${ENABLE_CRON:-true}
+      CRON_SEAT_RECONCILE: ${CRON_SEAT_RECONCILE:-0 2 * * *}
+    ports:
+      - '127.0.0.1:4000:4000'
+    healthcheck:
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://localhost:4000/api/health']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL}
+    image: onsec-web:latest
+    container_name: onsec-web-prod
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      HOSTNAME: '0.0.0.0'
+    ports:
+      - '127.0.0.1:3000:3000'
+
+volumes:
+  onsec-pgdata:
+  onsec-redisdata:

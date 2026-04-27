@@ -1,0 +1,39 @@
+{
+  "name": "@onsecboad/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "lint": "eslint src --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@onsecboad/auth": "workspace:*",
+    "@onsecboad/config": "workspace:*",
+    "@onsecboad/db": "workspace:*",
+    "@onsecboad/email": "workspace:*",
+    "@onsecboad/r2": "workspace:*",
+    "@onsecboad/stripe": "workspace:*",
+    "@onsecboad/tenancy": "workspace:*",
+    "@trpc/server": "^11.0.0-rc.502",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "ioredis": "^5.4.1",
+    "node-cron": "^3.0.3",
+    "pino": "^9.4.0",
+    "pino-http": "^10.3.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

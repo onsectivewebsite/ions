@@ -1,0 +1,41 @@
+# Local-dev compose. For prod, see compose.prod.yml (Phase 0 ships this dev one).
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: onsec-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: onsec
+      POSTGRES_PASSWORD: onsec
+      POSTGRES_DB: onsecboad
+    ports:
+      - '5433:5432'
+    volumes:
+      - onsec-pgdata:/var/lib/postgresql/data
+      - ../postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U onsec -d onsecboad']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: onsec-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - onsec-redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Web + API are run from the host with `pnpm dev` in Phase 0 development.
+  # Production images are added in Phase 0 close-out. See README.
+
+volumes:
+  onsec-pgdata:
+  onsec-redisdata:
