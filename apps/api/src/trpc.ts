@@ -43,3 +43,29 @@ export const firmProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   }
   return next({ ctx: { ...ctx, tenantId: ctx.session.tenantId } });
 });
+
+/**
+ * Client-portal-scoped procedure. Gates on scope='client' and resolves
+ * the linked Client + tenantId so handlers can `where: { clientId,
+ * tenantId }` filter without re-querying.
+ */
+export const clientProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (ctx.session.scope !== 'client' || !ctx.session.tenantId) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Client portal only' });
+  }
+  const account = await ctx.prisma.clientPortalAccount.findUnique({
+    where: { id: ctx.session.sub },
+    select: { id: true, clientId: true, tenantId: true, status: true },
+  });
+  if (!account || account.status !== 'ACTIVE') {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Account not active' });
+  }
+  return next({
+    ctx: {
+      ...ctx,
+      tenantId: account.tenantId,
+      clientId: account.clientId,
+      accountId: account.id,
+    },
+  });
+});

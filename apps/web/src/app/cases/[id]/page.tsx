@@ -31,6 +31,7 @@ import { RetainerCard } from '../../../components/retainer/RetainerCard';
 import { DocumentsCard } from '../../../components/documents/DocumentsCard';
 import { LawyerReviewCard } from '../../../components/cases/LawyerReviewCard';
 import { IrccLogCard } from '../../../components/cases/IrccLogCard';
+import { PortalAccessCard } from '../../../components/cases/PortalAccessCard';
 
 type CaseStatus =
   | 'PENDING_RETAINER'
@@ -470,6 +471,12 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                   onAfter={refresh}
                 />
               </Card>
+
+              <PortalAccessCard
+                clientId={c.client.id}
+                clientEmail={c.client.email}
+                onError={setError}
+              />
 
               <Card>
                 <CardTitle>Notes</CardTitle>

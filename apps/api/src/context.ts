@@ -69,6 +69,30 @@ export async function createContext({ req }: CreateExpressContextOptions): Promi
     });
     if (!pu) session = null;
   }
+  // Client portal — same dead-tenant + dead-account guard as the firm
+  // path. The JWT subject is the ClientPortalAccount.id; tenantId is in
+  // the claim so we can verify the firm is still active.
+  if (session && session.scope === 'client' && session.tenantId) {
+    const [tenant, account] = await Promise.all([
+      prisma.tenant.findUnique({
+        where: { id: session.tenantId },
+        select: { status: true, deletedAt: true },
+      }),
+      prisma.clientPortalAccount.findUnique({
+        where: { id: session.sub },
+        select: { status: true, clientId: true },
+      }),
+    ]);
+    const tenantDead =
+      !tenant ||
+      tenant.deletedAt ||
+      tenant.status === 'CANCELED' ||
+      tenant.status === 'SUSPENDED';
+    const accountDead = !account || account.status !== 'ACTIVE';
+    if (tenantDead || accountDead) {
+      session = null;
+    }
+  }
   const cfCountry = (req.header('cf-ipcountry') ?? '').toUpperCase().trim();
   // Cloudflare uses 'XX' / 'T1' / 'XX' for unknown / Tor / unidentified.
   const country =

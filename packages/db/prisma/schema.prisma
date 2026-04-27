@@ -95,6 +95,7 @@ model Tenant {
   documentCollections        DocumentCollection[]
   documentUploads            DocumentUpload[]
   irccCorrespondence         IrccCorrespondence[]
+  clientPortalAccounts       ClientPortalAccount[]
 
   @@index([status])
 }
@@ -535,6 +536,7 @@ model Client {
   intakeSubmissions IntakeSubmission[]
   appointments      Appointment[]
   cases             Case[]
+  portalAccount     ClientPortalAccount?
 
   // One canonical client row per (firm, phone). Re-arrival lookups hit this index.
   @@unique([tenantId, phone])
@@ -941,4 +943,57 @@ model IrccCorrespondence {
   createdAt   DateTime  @default(now())
 
   @@index([tenantId, caseId, occurredAt])
+}
+
+// ─── Phase 5.5: Client portal ──────────────────────────────────────────────
+
+// ClientPortalAccount — login record for an end client (the law firm's
+// customer). One per Client. Scope='client' JWTs key off this row.
+//
+// Lifecycle:
+//   INVITED  → setup token sent; password not set yet
+//   ACTIVE   → password set, can sign in
+//   DISABLED → soft-revoke (firm admin can disable)
+model ClientPortalAccount {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  clientId    String   @unique @db.Uuid
+  client      Client   @relation(fields: [clientId], references: [id])
+  email       String   @db.Citext
+  passwordHash String?
+  status      ClientAccountStatus @default(INVITED)
+  invitedAt   DateTime?
+  joinedAt    DateTime?
+  lastLoginAt DateTime?
+  // Setup flow — like /setup for new firms.
+  setupTokenHash       String?  @unique
+  setupTokenExpiresAt  DateTime?
+  invitedById String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sessions    ClientPortalSession[]
+
+  @@unique([tenantId, email])
+}
+
+enum ClientAccountStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+}
+
+// Refresh-token sessions for the client portal — kept separate from the
+// staff Session table because the keying differs (accountId vs userId).
+model ClientPortalSession {
+  id               String   @id @default(uuid()) @db.Uuid
+  accountId        String   @db.Uuid
+  account          ClientPortalAccount @relation(fields: [accountId], references: [id])
+  refreshTokenHash String   @unique
+  device           String
+  ip               String
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  revokedAt        DateTime?
 }

@@ -28,6 +28,7 @@ import { retainerTemplateRouter } from './routers/retainer-template.js';
 import { retainerRouter } from './routers/retainer.js';
 import { documentChecklistTemplateRouter } from './routers/document-checklist-template.js';
 import { documentCollectionRouter } from './routers/document-collection.js';
+import { portalRouter, clientPortalAdminRouter } from './routers/portal.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -59,6 +60,8 @@ export const appRouter = router({
   retainer: retainerRouter,
   documentChecklistTemplate: documentChecklistTemplateRouter,
   documentCollection: documentCollectionRouter,
+  portal: portalRouter,
+  clientPortal: clientPortalAdminRouter,
 });
 
 export type AppRouter = typeof appRouter;
