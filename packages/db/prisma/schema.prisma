@@ -72,6 +72,14 @@ model Tenant {
   roles           Role[]
   invites         Invite[]
   auditLogs       AuditLog[]
+  // Phase 3 back-relations
+  leads           Lead[]
+  callLogs        CallLog[]
+  smsLogs         SmsLog[]
+  emailLogs       EmailLog[]
+  campaigns       Campaign[]
+  leadRules       LeadRule[]
+  apiKeys         ApiKey[]
 
   @@index([status])
 }
@@ -107,6 +115,7 @@ model Branch {
   deletedAt DateTime?
 
   users     User[]  @relation("BranchUsers")
+  leads     Lead[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -137,6 +146,8 @@ model User {
 
   passkeys        Passkey[]
   sessions        Session[]
+  assignedLeads   Lead[]    @relation("LeadAssignee")
+  callsAsAgent    CallLog[] @relation("CallAgent")
 
   @@unique([tenantId, email])
   @@index([tenantId, roleId])
@@ -280,4 +291,197 @@ model WebhookEvent {
   payload     Json?
 
   @@index([source, type])
+}
+
+// ─── Phase 3: Lead pipeline + CRM + Twilio ──────────────────────────────────
+
+model Lead {
+  id                 String       @id @default(uuid()) @db.Uuid
+  tenantId           String       @db.Uuid
+  tenant             Tenant       @relation(fields: [tenantId], references: [id])
+  branchId           String?      @db.Uuid
+  branch             Branch?      @relation(fields: [branchId], references: [id])
+  assignedToId       String?      @db.Uuid
+  assignedTo         User?        @relation("LeadAssignee", fields: [assignedToId], references: [id])
+  // Lead identity
+  firstName          String?
+  lastName           String?
+  email              String?      @db.Citext
+  phone              String?      // E.164 preferred but free-form ok
+  // Origin
+  source             String       // 'meta' | 'tiktok' | 'website' | 'walkin' | 'referral' | 'manual' | 'import'
+  sourceCampaignId   String?      @db.Uuid
+  sourceCampaign     Campaign?    @relation("LeadSourceCampaign", fields: [sourceCampaignId], references: [id])
+  externalId         String?      // platform-specific (Meta lead id, etc)
+  // Lead state
+  status             LeadStatus   @default(NEW)
+  priority           Int          @default(50)
+  language           String?      // ISO 639-1: 'en', 'pa', 'hi', 'fr', etc
+  caseInterest       String?      // 'work_permit', 'study_permit', 'pr', etc
+  notes              String?
+  payload            Json?        // platform-native form fields
+  // Compliance
+  dncFlag            Boolean      @default(false)
+  consentMarketing   Boolean      @default(false)
+  // Activity timestamps
+  lastContactedAt    DateTime?
+  followupDueAt      DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  deletedAt          DateTime?
+
+  callLogs           CallLog[]
+  smsLogs            SmsLog[]
+  emailLogs          EmailLog[]
+  leadCampaigns      LeadCampaign[]
+
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, branchId, assignedToId])
+  @@index([tenantId, phone])
+  @@index([tenantId, email])
+  @@unique([tenantId, source, externalId])
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  FOLLOWUP
+  INTERESTED
+  BOOKED
+  CONVERTED
+  LOST
+  DNC
+}
+
+model CallLog {
+  id              String     @id @default(uuid()) @db.Uuid
+  tenantId        String     @db.Uuid
+  tenant          Tenant     @relation(fields: [tenantId], references: [id])
+  leadId          String?    @db.Uuid
+  lead            Lead?      @relation(fields: [leadId], references: [id])
+  agentId         String?    @db.Uuid
+  agent           User?      @relation("CallAgent", fields: [agentId], references: [id])
+  twilioSid       String?    @unique
+  direction       String     // 'outbound' | 'inbound'
+  fromNumber      String?
+  toNumber        String?
+  status          String     // 'queued' | 'ringing' | 'in-progress' | 'completed' | 'busy' | 'no-answer' | 'failed'
+  durationSec     Int?
+  recordingUrl    String?    // r2:// pointer
+  recordingSid    String?
+  disposition     String?    // 'interested' | 'not_interested' | 'voicemail' | 'callback' | 'wrong_number' | 'dnc' | 'booked'
+  notes           String?
+  startedAt       DateTime   @default(now())
+  endedAt         DateTime?
+
+  @@index([tenantId, agentId, startedAt])
+  @@index([tenantId, leadId, startedAt])
+}
+
+model SmsLog {
+  id              String     @id @default(uuid()) @db.Uuid
+  tenantId        String     @db.Uuid
+  tenant          Tenant     @relation(fields: [tenantId], references: [id])
+  leadId          String?    @db.Uuid
+  lead            Lead?      @relation(fields: [leadId], references: [id])
+  agentId         String?    @db.Uuid
+  twilioSid       String?    @unique
+  direction       String     // 'outbound' | 'inbound'
+  fromNumber      String?
+  toNumber        String?
+  body            String
+  status          String     // 'queued' | 'sent' | 'delivered' | 'failed' | 'received'
+  createdAt       DateTime   @default(now())
+
+  @@index([tenantId, leadId, createdAt])
+}
+
+model EmailLog {
+  id              String     @id @default(uuid()) @db.Uuid
+  tenantId        String     @db.Uuid
+  tenant          Tenant     @relation(fields: [tenantId], references: [id])
+  leadId          String?    @db.Uuid
+  lead            Lead?      @relation(fields: [leadId], references: [id])
+  agentId         String?    @db.Uuid
+  toEmail         String
+  fromEmail       String
+  subject         String
+  body            String
+  templateKey     String?
+  status          String     // 'sent' | 'failed' | 'opened' | 'clicked'
+  providerId      String?    @unique // SES/Resend message id
+  createdAt       DateTime   @default(now())
+
+  @@index([tenantId, leadId, createdAt])
+}
+
+model Campaign {
+  id              String     @id @default(uuid()) @db.Uuid
+  tenantId        String     @db.Uuid
+  tenant          Tenant     @relation(fields: [tenantId], references: [id])
+  branchId        String?    @db.Uuid
+  name            String
+  channel         String     // 'sms' | 'email' | 'meta' | 'tiktok' | 'manual'
+  status          String     @default("draft") // 'draft' | 'scheduled' | 'running' | 'completed' | 'paused'
+  audienceJson    Json?      // segmentation config
+  templateKey     String?
+  body            String?
+  startsAt        DateTime?
+  endsAt          DateTime?
+  createdBy       String     @db.Uuid
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  leadCampaigns   LeadCampaign[]
+  sourcedLeads    Lead[]     @relation("LeadSourceCampaign")
+
+  @@index([tenantId, status])
+}
+
+model LeadCampaign {
+  id              String     @id @default(uuid()) @db.Uuid
+  tenantId        String     @db.Uuid
+  leadId          String     @db.Uuid
+  lead            Lead       @relation(fields: [leadId], references: [id])
+  campaignId      String     @db.Uuid
+  campaign        Campaign   @relation(fields: [campaignId], references: [id])
+  sentAt          DateTime?
+  openedAt        DateTime?
+  clickedAt       DateTime?
+  bouncedAt       DateTime?
+  unsubscribedAt  DateTime?
+
+  @@unique([leadId, campaignId])
+  @@index([tenantId, campaignId])
+}
+
+model LeadRule {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String     @db.Uuid
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  priority    Int        // lower = first
+  name        String
+  matchJson   Json       // {source?, language?, branchId?, hourRange?}
+  actionJson  Json       // {assignTo: 'round_robin'|'user', userId?, branchId?}
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([tenantId, priority])
+}
+
+model ApiKey {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String     @db.Uuid
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  name        String
+  keyHash     String     @unique
+  keyPrefix   String     // first 8 chars for display ("osk_abcd…")
+  scopes      String[]   // 'leads:write', 'leads:read', etc
+  createdBy   String     @db.Uuid
+  createdAt   DateTime   @default(now())
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+
+  @@index([tenantId, revokedAt])
 }

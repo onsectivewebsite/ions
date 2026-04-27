@@ -9,6 +9,7 @@ import { branchRouter } from './routers/branch.js';
 import { inviteRouter } from './routers/invite.js';
 import { roleRouter } from './routers/role.js';
 import { auditRouter } from './routers/audit.js';
+import { leadRouter } from './routers/lead.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   invite: inviteRouter,
   role: roleRouter,
   audit: auditRouter,
+  lead: leadRouter,
 });
 
 export type AppRouter = typeof appRouter;
