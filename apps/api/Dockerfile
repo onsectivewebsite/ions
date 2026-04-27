@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-# ─── deps stage ────────────────────────────────────────────────────────────
-# Cache the pnpm install in its own layer; all source changes downstream
-# don't invalidate node_modules.
+# ─── deps ──────────────────────────────────────────────────────────────────
+# Install workspace deps. Cached layer — only invalidates when any
+# package.json or the lockfile changes.
 FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat openssl python3 make g++
 WORKDIR /app
@@ -20,41 +20,27 @@ COPY packages/integrations/stripe/package.json packages/integrations/stripe/
 COPY packages/integrations/r2/package.json packages/integrations/r2/
 RUN pnpm install --frozen-lockfile
 
-# ─── prisma stage ──────────────────────────────────────────────────────────
-# Generate the Prisma client. Schema is the only thing that determines the
-# generated code; copying just it keeps this layer cacheable.
-FROM deps AS prisma
-COPY packages/db/prisma packages/db/prisma
+# ─── build ─────────────────────────────────────────────────────────────────
+# Add source + generated Prisma client. Everything pnpm needs to resolve
+# workspace imports — including the per-package `node_modules/` symlink
+# trees — is now in place.
+FROM deps AS build
+COPY tsconfig.base.json ./tsconfig.base.json
+COPY packages ./packages
+COPY apps/api ./apps/api
 RUN pnpm --filter @onsecboad/db exec prisma generate
 
 # ─── runtime ───────────────────────────────────────────────────────────────
-# Run with tsx so workspace path imports (@onsecboad/*) resolve without us
-# having to compile each package. tsx caches its transpile so the runtime
-# overhead is negligible for a long-lived server.
-FROM node:20-alpine AS runtime
-RUN apk add --no-cache libc6-compat openssl tini
-WORKDIR /app
-ENV NODE_ENV=production
-
-# Non-root user
-RUN addgroup -g 1001 -S nodejs && adduser -S onsec -u 1001 -G nodejs
-
-# Bring in node_modules with the generated Prisma client
-COPY --from=prisma /app/node_modules ./node_modules
-COPY --from=prisma /app/pnpm-lock.yaml ./pnpm-lock.yaml
-COPY --from=prisma /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
-COPY --from=prisma /app/package.json ./package.json
-COPY --from=prisma /app/packages/db/node_modules ./packages/db/node_modules
-
-# App source
-COPY tsconfig.base.json ./tsconfig.base.json
-COPY apps/api ./apps/api
-COPY packages ./packages
-
+# Reuse the build stage as-is; only change the entrypoint + drop privileges.
+# Running via `pnpm --filter ... exec tsx` lets pnpm find tsx wherever it
+# happens to live (root or workspace-member node_modules), which is the
+# whole point — node's bare `--import tsx` couldn't.
+FROM build AS runtime
+RUN apk add --no-cache tini && \
+    addgroup -g 1001 -S nodejs && adduser -S onsec -u 1001 -G nodejs && \
+    chown -R onsec:nodejs /app
 USER onsec
+ENV NODE_ENV=production
 EXPOSE 4000
-
-# tini gives us proper signal forwarding so SIGTERM from `docker stop`
-# triggers a clean shutdown instead of a kill -9.
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["node", "--import", "tsx", "apps/api/src/main.ts"]
+CMD ["pnpm", "--filter", "@onsecboad/api", "exec", "tsx", "src/main.ts"]
