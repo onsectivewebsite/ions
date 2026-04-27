@@ -87,6 +87,8 @@ model Tenant {
   intakeFormTemplates  IntakeFormTemplate[]
   intakeSubmissions    IntakeSubmission[]
   appointments         Appointment[]
+  // Phase 5 back-relations
+  cases                Case[]
 
   @@index([status])
 }
@@ -125,6 +127,7 @@ model Branch {
   leads     Lead[]
   clients   Client[]
   appointments Appointment[]
+  cases     Case[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -158,6 +161,8 @@ model User {
   assignedLeads   Lead[]    @relation("LeadAssignee")
   callsAsAgent    CallLog[] @relation("CallAgent")
   appointmentsAsProvider Appointment[] @relation("AppointmentProvider")
+  casesAsLawyer   Case[]    @relation("CaseLawyer")
+  casesAsFiler    Case[]    @relation("CaseFiler")
 
   @@unique([tenantId, email])
   @@index([tenantId, roleId])
@@ -345,6 +350,7 @@ model Lead {
   emailLogs          EmailLog[]
   leadCampaigns      LeadCampaign[]
   appointments       Appointment[]
+  cases              Case[]
 
   @@index([tenantId, status, createdAt])
   @@index([tenantId, branchId, assignedToId])
@@ -521,6 +527,7 @@ model Client {
 
   intakeSubmissions IntakeSubmission[]
   appointments      Appointment[]
+  cases             Case[]
 
   // One canonical client row per (firm, phone). Re-arrival lookups hit this index.
   @@unique([tenantId, phone])
@@ -646,4 +653,73 @@ enum AppointmentOutcome {
   FOLLOWUP
   DONE
   NO_SHOW
+}
+
+// ─── Phase 5: Case management ──────────────────────────────────────────────
+
+// Case represents a retained matter — created when an appointment outcome
+// is RETAINER. State machine drives the workflow from retainer signature
+// through document collection, lawyer approval, IRCC submission, and final
+// outcome. Hard rule: feesCleared must be true before SUBMITTED_TO_IRCC.
+model Case {
+  id                 String     @id @default(uuid()) @db.Uuid
+  tenantId           String     @db.Uuid
+  tenant             Tenant     @relation(fields: [tenantId], references: [id])
+  branchId           String?    @db.Uuid
+  branch             Branch?    @relation(fields: [branchId], references: [id])
+  // Subject
+  clientId           String     @db.Uuid
+  client             Client     @relation(fields: [clientId], references: [id])
+  leadId             String?    @db.Uuid
+  lead               Lead?      @relation(fields: [leadId], references: [id])
+  appointmentId      String?    @db.Uuid    // origin consult
+  caseType           String     // 'work_permit' | 'study_permit' | etc — same vocab as intake template
+  // Assignments
+  lawyerId           String     @db.Uuid
+  lawyer             User       @relation("CaseLawyer", fields: [lawyerId], references: [id])
+  filerId            String?    @db.Uuid
+  filer              User?      @relation("CaseFiler", fields: [filerId], references: [id])
+  // Status
+  status             CaseStatus @default(PENDING_RETAINER)
+  // Money — feesCleared is a derived flag we maintain on every payment update
+  retainerFeeCents   Int?       // agreed-upon retainer at outcome time
+  totalFeeCents      Int?       // full file fee (set later, ≥ retainer)
+  amountPaidCents    Int        @default(0)
+  feesCleared        Boolean    @default(false)
+  // IRCC tracking — manual fields, no public API to verify
+  usiNumber          String?    // unique session ID
+  irccFileNumber     String?    // IRCC's case number once submitted
+  irccPortalDate     DateTime?  // when uploaded to IRCC portal
+  irccDecision       String?    // 'approved' | 'refused' | 'withdrawn' | etc
+  // Lifecycle timestamps — one per major transition for visibility
+  retainerApprovedAt DateTime?  // lawyer approved retainer terms
+  retainerSignedAt   DateTime?  // client signed retainer
+  documentsLockedAt  DateTime?  // client submitted all docs; collection link locked
+  lawyerApprovedAt   DateTime?  // lawyer approved assembled file
+  submittedToIrccAt  DateTime?  // case.transition → SUBMITTED_TO_IRCC
+  completedAt        DateTime?  // final outcome
+  closedReason       String?    // for WITHDRAWN / ABANDONED
+  notes              String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  deletedAt          DateTime?
+
+  @@index([tenantId, status, updatedAt])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, clientId])
+  @@index([tenantId, lawyerId, status])
+  @@index([tenantId, filerId, status])
+}
+
+enum CaseStatus {
+  PENDING_RETAINER             // retainer drafted, awaiting lawyer approval
+  PENDING_RETAINER_SIGNATURE   // lawyer approved, awaiting client signature
+  PENDING_DOCUMENTS            // signed; filer collecting docs from client
+  PREPARING                    // filer assembling the file
+  PENDING_LAWYER_APPROVAL      // file ready for lawyer's final review
+  SUBMITTED_TO_IRCC            // uploaded to IRCC portal
+  IN_REVIEW                    // IRCC reviewing
+  COMPLETED                    // approved / finalized
+  WITHDRAWN                    // client withdrew
+  ABANDONED                    // client abandoned (no comms / no payment)
 }

@@ -58,6 +58,15 @@ type Lead = {
   callLogs: CallLog[];
   smsLogs: SmsLog[];
   emailLogs: EmailLog[];
+  cases: Array<{ id: string; status: string; caseType: string; createdAt: string }>;
+  appointments: Array<{
+    id: string;
+    scheduledAt: string;
+    status: string;
+    outcome: string | null;
+    kind: string;
+    provider: { id: string; name: string };
+  }>;
 };
 
 type Me = {
@@ -425,25 +434,67 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               </Card>
             </div>
 
-            <Card>
-              <CardTitle>Assigned to</CardTitle>
-              {lead.assignedTo ? (
-                <div className="mt-4 space-y-1">
-                  <div className="text-sm font-medium">{lead.assignedTo.name}</div>
-                  <a
-                    href={`mailto:${lead.assignedTo.email}`}
-                    className="text-xs text-[var(--color-text-muted)] hover:underline"
-                  >
-                    {lead.assignedTo.email}
-                  </a>
-                </div>
-              ) : (
-                <div className="mt-4 text-sm text-[var(--color-warning)]">Unassigned</div>
-              )}
-              <Button size="sm" variant="ghost" className="mt-3" onClick={() => setAssignOpen(true)}>
-                <UserCog size={12} /> Change
-              </Button>
-            </Card>
+            <div className="space-y-6">
+              <Card>
+                <CardTitle>Assigned to</CardTitle>
+                {lead.assignedTo ? (
+                  <div className="mt-4 space-y-1">
+                    <div className="text-sm font-medium">{lead.assignedTo.name}</div>
+                    <a
+                      href={`mailto:${lead.assignedTo.email}`}
+                      className="text-xs text-[var(--color-text-muted)] hover:underline"
+                    >
+                      {lead.assignedTo.email}
+                    </a>
+                  </div>
+                ) : (
+                  <div className="mt-4 text-sm text-[var(--color-warning)]">Unassigned</div>
+                )}
+                <Button size="sm" variant="ghost" className="mt-3" onClick={() => setAssignOpen(true)}>
+                  <UserCog size={12} /> Change
+                </Button>
+              </Card>
+
+              {lead.appointments.length > 0 ? (
+                <Card>
+                  <CardTitle>Appointments ({lead.appointments.length})</CardTitle>
+                  <ul className="mt-3 space-y-2 text-xs">
+                    {lead.appointments.map((a) => (
+                      <li key={a.id}>
+                        <div className="font-medium">
+                          {new Date(a.scheduledAt).toLocaleString()}
+                        </div>
+                        <div className="text-[var(--color-text-muted)]">
+                          {a.kind} · {a.provider.name} · {a.status}
+                          {a.outcome ? ` · ${a.outcome}` : ''}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              ) : null}
+
+              {lead.cases.length > 0 ? (
+                <Card>
+                  <CardTitle>Linked cases ({lead.cases.length})</CardTitle>
+                  <ul className="mt-3 space-y-2">
+                    {lead.cases.map((c) => (
+                      <li key={c.id}>
+                        <Link
+                          href={`/cases/${c.id}`}
+                          className="block rounded-[var(--radius-md)] border border-[var(--color-border-muted)] p-2 text-sm hover:bg-[var(--color-surface-muted)]"
+                        >
+                          <div className="font-medium">{c.caseType.replace('_', ' ')}</div>
+                          <div className="text-xs text-[var(--color-text-muted)]">
+                            {c.status.replaceAll('_', ' ')} · {new Date(c.createdAt).toLocaleDateString()}
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              ) : null}
+            </div>
           </div>
         </div>
 

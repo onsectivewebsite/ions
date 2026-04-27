@@ -19,6 +19,7 @@ import { Prisma } from '@onsecboad/db';
 import { router } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
 import { publishEvent } from '../lib/realtime.js';
+import { autoCreateCaseFromRetainer } from './case.js';
 import { logger } from '../logger.js';
 
 const KIND = ['consultation', 'followup', 'document_review', 'walkin'] as const;
@@ -416,6 +417,27 @@ export const appointmentRouter = router({
         });
       }
 
+      // Auto-create a Case when the consult retained. Stash the new case id
+      // on the appointment update so the UI can deep-link.
+      let caseId: string | null = null;
+      if (input.outcome === 'RETAINER') {
+        try {
+          const r = await autoCreateCaseFromRetainer(ctx.prisma, {
+            tenantId: ctx.tenantId,
+            appointmentId: a.id,
+            actorId: ctx.session.sub,
+          });
+          caseId = r.caseId;
+        } catch (e) {
+          // Don't fail outcome capture if case-create breaks (e.g. no phone
+          // on lead). The lawyer/admin can create the case manually.
+          logger.warn(
+            { err: e, appointmentId: a.id },
+            'auto case-create on RETAINER failed',
+          );
+        }
+      }
+
       await ctx.prisma.auditLog.create({
         data: {
           tenantId: ctx.tenantId,
@@ -450,6 +472,6 @@ export const appointmentRouter = router({
         },
       );
 
-      return updated;
+      return { ...updated, caseId };
     }),
 });

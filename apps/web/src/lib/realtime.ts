@@ -11,6 +11,7 @@ export type RealtimeEvent =
   | { type: 'call.status'; callId: string; status: string; agentId: string | null; leadId: string | null }
   | { type: 'appointment.created'; appointmentId: string; scheduledAt: string; providerId: string }
   | { type: 'appointment.outcome'; appointmentId: string; outcome: string; leadId: string | null }
+  | { type: 'case.status'; caseId: string; status: string }
   | { type: 'ping'; t: number };
 
 type Listener = (ev: RealtimeEvent) => void;
@@ -55,6 +56,7 @@ export function useRealtime(onEvent: Listener): void {
       'call.status',
       'appointment.created',
       'appointment.outcome',
+      'case.status',
       'ping',
     ];
     types.forEach((t) => es.addEventListener(t, handle));

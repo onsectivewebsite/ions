@@ -23,6 +23,7 @@ import { clientRouter } from './routers/client.js';
 import { intakeTemplateRouter } from './routers/intake-template.js';
 import { intakeRouter } from './routers/intake.js';
 import { appointmentRouter } from './routers/appointment.js';
+import { caseRouter } from './routers/case.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -49,6 +50,7 @@ export const appRouter = router({
   intakeTemplate: intakeTemplateRouter,
   intake: intakeRouter,
   appointment: appointmentRouter,
+  cases: caseRouter,
 });
 
 export type AppRouter = typeof appRouter;

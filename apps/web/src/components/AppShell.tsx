@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   BarChart3,
   Bell,
+  Briefcase,
   Building,
   Building2,
   Calendar,
@@ -81,7 +82,7 @@ const FIRM_NAV: NavItem[] = [
   { href: '/marketing/campaigns', label: 'Campaigns', icon: Megaphone, permit: { resource: 'campaigns', action: 'read' } },
   { href: '/reports', label: 'Reports', icon: BarChart3, permit: { resource: 'reports', action: 'read' } },
   { href: '/clients', label: 'Clients', icon: Users, permit: { resource: 'clients', action: 'read' } },
-  { href: '/cases', label: 'Cases', icon: Shield, permit: { resource: 'cases', action: 'read' } },
+  { href: '/cases', label: 'Cases', icon: Briefcase, permit: { resource: 'cases', action: 'read' } },
   { href: '/f/branches', label: 'Branches', icon: Building, permit: { resource: 'branches', action: 'read' } },
   { href: '/f/users', label: 'Users', icon: Users, permit: { resource: 'users', action: 'read' } },
   { href: '/f/roles', label: 'Roles', icon: KeyRound, permit: { resource: 'roles', action: 'read' } },

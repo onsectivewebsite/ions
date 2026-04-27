@@ -26,6 +26,7 @@ export type RealtimeEvent =
   | { type: 'call.status'; callId: string; status: string; agentId: string | null; leadId: string | null }
   | { type: 'appointment.created'; appointmentId: string; scheduledAt: string; providerId: string }
   | { type: 'appointment.outcome'; appointmentId: string; outcome: string; leadId: string | null }
+  | { type: 'case.status'; caseId: string; status: string }
   | { type: 'ping'; t: number };
 
 export type EventTarget =

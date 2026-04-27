@@ -135,6 +135,23 @@ export const leadRouter = router({
           callLogs: { orderBy: { startedAt: 'desc' }, take: 50 },
           smsLogs: { orderBy: { createdAt: 'desc' }, take: 50 },
           emailLogs: { orderBy: { createdAt: 'desc' }, take: 50 },
+          cases: {
+            where: { deletedAt: null },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, status: true, caseType: true, createdAt: true },
+          },
+          appointments: {
+            orderBy: { scheduledAt: 'desc' },
+            take: 10,
+            select: {
+              id: true,
+              scheduledAt: true,
+              status: true,
+              outcome: true,
+              kind: true,
+              provider: { select: { id: true, name: true } },
+            },
+          },
         },
       });
       if (!lead) throw new TRPCError({ code: 'NOT_FOUND' });
