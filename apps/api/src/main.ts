@@ -31,6 +31,7 @@ import {
   publicCollectionUploadHandler,
   publicCollectionSubmitHandler,
 } from './routes/document-upload.js';
+import { pdfTemplateUploadHandler } from './routes/pdf-template-upload.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
 const env = loadEnv();
@@ -84,6 +85,9 @@ app.post('/api/v1/cases/:caseId/upload', fileBody, staffUploadHandler);
 app.get('/api/v1/dc/:token', publicCollectionGetHandler);
 app.post('/api/v1/dc/:token/upload', fileBody, publicCollectionUploadHandler);
 app.post('/api/v1/dc/:token/submit', express.json({ limit: '4kb' }), publicCollectionSubmitHandler);
+
+// PDF form template uploads — same raw-bytes pattern as documents.
+app.post('/api/v1/pdf-templates', fileBody, pdfTemplateUploadHandler);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

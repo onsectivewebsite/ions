@@ -30,6 +30,7 @@ import { documentChecklistTemplateRouter } from './routers/document-checklist-te
 import { documentCollectionRouter } from './routers/document-collection.js';
 import { portalRouter, clientPortalAdminRouter } from './routers/portal.js';
 import { caseAiRouter } from './routers/case-ai.js';
+import { pdfTemplateRouter } from './routers/pdf-template.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -64,6 +65,7 @@ export const appRouter = router({
   portal: portalRouter,
   clientPortal: clientPortalAdminRouter,
   caseAi: caseAiRouter,
+  pdfTemplate: pdfTemplateRouter,
 });
 
 export type AppRouter = typeof appRouter;

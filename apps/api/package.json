@@ -24,6 +24,7 @@
     "@onsecboad/tiktok": "workspace:*",
     "@onsecboad/ai": "workspace:*",
     "@trpc/server": "^11.0.0-rc.502",
+    "pdf-lib": "^1.17.1",
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "ioredis": "^5.4.1",

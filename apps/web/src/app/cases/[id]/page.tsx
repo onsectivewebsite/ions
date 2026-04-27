@@ -33,6 +33,7 @@ import { LawyerReviewCard } from '../../../components/cases/LawyerReviewCard';
 import { IrccLogCard } from '../../../components/cases/IrccLogCard';
 import { PortalAccessCard } from '../../../components/cases/PortalAccessCard';
 import { CaseAiCard } from '../../../components/cases/CaseAiCard';
+import { PdfFormFillCard } from '../../../components/cases/PdfFormFillCard';
 
 type CaseStatus =
   | 'PENDING_RETAINER'
@@ -377,6 +378,15 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
               {/* AI extraction (Phase 6.1) — pulls every uploaded document +
                   intake into a structured view. Lawyer reviews + edits inline. */}
               <CaseAiCard caseId={id} caseStatus={c.status} onError={setError} />
+
+              {/* PDF form-fill (Phase 6.2) — renders extracted data into
+                  per-firm IRCC PDF templates and stashes the filled PDFs in R2. */}
+              <PdfFormFillCard
+                caseId={id}
+                caseType={c.caseType}
+                caseStatus={c.status}
+                onError={setError}
+              />
 
               {/* Lawyer review pane (Phase 5.4) — only renders at
                   PENDING_LAWYER_APPROVAL. Pre-flight checklist + attestation

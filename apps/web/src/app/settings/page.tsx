@@ -7,6 +7,7 @@ import {
   CreditCard,
   Facebook,
   FileCheck,
+  FilePlus,
   FileSignature,
   KeyRound,
   Music2,
@@ -158,6 +159,12 @@ export default function SettingsIndexPage() {
       icon: FileCheck,
       title: 'Document checklists',
       description: 'Per-case-type list of files the client must upload.',
+    });
+    tiles.push({
+      href: '/settings/pdf-templates',
+      icon: FilePlus,
+      title: 'PDF form templates',
+      description: 'Upload IRCC PDFs and map their fields to AI-extracted data.',
     });
   }
 

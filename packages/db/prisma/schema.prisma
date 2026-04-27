@@ -98,6 +98,8 @@ model Tenant {
   clientPortalAccounts       ClientPortalAccount[]
   // Phase 6 back-relations
   caseAiData                 CaseAiData[]
+  pdfFormTemplates           PdfFormTemplate[]
+  generatedDocuments         GeneratedDocument[]
 
   @@index([status])
 }
@@ -1048,4 +1050,72 @@ enum CaseAiStatus {
   RUNNING
   READY
   FAILED
+}
+
+// PdfFormTemplate — per-firm fillable PDF (typically an IRCC form like
+// IMM 1295 / IMM 0008). Source PDF lives in R2; mappingJson maps each
+// AcroForm field name to a dotted data-path on CaseAiData.merged
+// (extracted + overrides). Generation reads CaseAiData, builds the
+// values, fills the PDF, drops the result in R2 + a GeneratedDocument row.
+//
+// mappingJson shape:
+//   [
+//     { pdfField: 'family_name',  dataPath: 'applicant.lastName' },
+//     { pdfField: 'given_name',   dataPath: 'applicant.firstName' },
+//     { pdfField: 'date_of_birth',dataPath: 'applicant.dateOfBirth', format: 'date_yyyymmdd' },
+//     { pdfField: 'is_canadian',  dataPath: 'applicant.citizenship', kind: 'checkbox', equals: 'CAN' },
+//     ...
+//   ]
+// Supported `kind`s: 'text' (default), 'checkbox', 'radio'. Optional
+// `format`: 'date_yyyymmdd' | 'date_dd_mm_yyyy' | 'phone_e164' (best-effort
+// converters, raw text if unset).
+model PdfFormTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  caseType    String?
+  name        String
+  description String?
+  // Source PDF lives in R2. fileName + sizeBytes are kept for display only.
+  r2Key       String
+  fileName    String
+  sizeBytes   Int
+  // Field names extracted from the PDF on first read, cached for the UI.
+  // Refreshed when the source PDF is replaced.
+  detectedFieldsJson Json
+  mappingJson        Json
+  isActive    Boolean  @default(true)
+  createdBy   String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  generated   GeneratedDocument[]
+
+  @@index([tenantId, caseType, isActive])
+}
+
+// GeneratedDocument — a filled PDF produced from a PdfFormTemplate +
+// CaseAiData snapshot. Lives in R2 alongside the staff/client uploads
+// but is firm-generated rather than client-uploaded. Versioned via
+// supersededAt: regenerating produces a fresh row and supersedes prior.
+model GeneratedDocument {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  caseId          String   @db.Uuid
+  templateId      String   @db.Uuid
+  template        PdfFormTemplate @relation(fields: [templateId], references: [id])
+  fileName        String
+  r2Key           String
+  sizeBytes       Int
+  // Frozen snapshot of the data used to generate THIS PDF — proves what
+  // was filled when. JSON is a flat dotted-key map.
+  dataSnapshot    Json
+  generatedById   String   @db.Uuid
+  generatedAt     DateTime @default(now())
+  supersededAt    DateTime?
+  supersededById  String?  @db.Uuid
+
+  @@index([tenantId, caseId, supersededAt])
+  @@index([templateId])
 }
