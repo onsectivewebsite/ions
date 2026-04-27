@@ -32,6 +32,7 @@ import { DocumentsCard } from '../../../components/documents/DocumentsCard';
 import { LawyerReviewCard } from '../../../components/cases/LawyerReviewCard';
 import { IrccLogCard } from '../../../components/cases/IrccLogCard';
 import { PortalAccessCard } from '../../../components/cases/PortalAccessCard';
+import { CaseAiCard } from '../../../components/cases/CaseAiCard';
 
 type CaseStatus =
   | 'PENDING_RETAINER'
@@ -372,6 +373,10 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                 clientEmail={c.client.email}
                 onError={setError}
               />
+
+              {/* AI extraction (Phase 6.1) — pulls every uploaded document +
+                  intake into a structured view. Lawyer reviews + edits inline. */}
+              <CaseAiCard caseId={id} caseStatus={c.status} onError={setError} />
 
               {/* Lawyer review pane (Phase 5.4) — only renders at
                   PENDING_LAWYER_APPROVAL. Pre-flight checklist + attestation

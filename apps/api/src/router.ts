@@ -29,6 +29,7 @@ import { retainerRouter } from './routers/retainer.js';
 import { documentChecklistTemplateRouter } from './routers/document-checklist-template.js';
 import { documentCollectionRouter } from './routers/document-collection.js';
 import { portalRouter, clientPortalAdminRouter } from './routers/portal.js';
+import { caseAiRouter } from './routers/case-ai.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -62,6 +63,7 @@ export const appRouter = router({
   documentCollection: documentCollectionRouter,
   portal: portalRouter,
   clientPortal: clientPortalAdminRouter,
+  caseAi: caseAiRouter,
 });
 
 export type AppRouter = typeof appRouter;

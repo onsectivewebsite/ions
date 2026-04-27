@@ -31,7 +31,8 @@
       "@onsecboad/r2": ["packages/integrations/r2/src"],
       "@onsecboad/twilio": ["packages/integrations/twilio/src"],
       "@onsecboad/meta": ["packages/integrations/meta/src"],
-      "@onsecboad/tiktok": ["packages/integrations/tiktok/src"]
+      "@onsecboad/tiktok": ["packages/integrations/tiktok/src"],
+      "@onsecboad/ai": ["packages/integrations/ai/src"]
     }
   }
 }

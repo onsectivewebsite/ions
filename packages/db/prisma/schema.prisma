@@ -96,6 +96,8 @@ model Tenant {
   documentUploads            DocumentUpload[]
   irccCorrespondence         IrccCorrespondence[]
   clientPortalAccounts       ClientPortalAccount[]
+  // Phase 6 back-relations
+  caseAiData                 CaseAiData[]
 
   @@index([status])
 }
@@ -996,4 +998,54 @@ model ClientPortalSession {
   expiresAt        DateTime
   createdAt        DateTime @default(now())
   revokedAt        DateTime?
+}
+
+// ─── Phase 6: AI extraction + form-fill ────────────────────────────────────
+
+// CaseAiData — one row per case. Stores extracted structured data from
+// the case's documents + intake submissions, with per-field provenance
+// and manual overrides kept separate so re-running AI doesn't blow away
+// the lawyer's edits.
+//
+// dataJson shape varies by case type but normalises around:
+//   {
+//     applicant: { firstName, lastName, dateOfBirth, gender, citizenship, … },
+//     passport: { number, issuedAt, expiresAt, country },
+//     contact: { email, phone, address: {...} },
+//     travel: [{ country, fromDate, toDate, purpose }],
+//     employment: [{ employer, role, fromDate, toDate, country }],
+//     education: [{ institution, level, fromDate, toDate, country }],
+//     family: { spouse?, children?, dependents? },
+//     financial: { proofOfFundsCad?, source? },
+//     answers: { /* free-form yes/no answers from intake */ }
+//   }
+//
+// provenanceJson maps "applicant.firstName" → { source: r2Key, confidence }.
+// overridesJson is a flat key→value map of lawyer/filer manual edits.
+model CaseAiData {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  caseId      String   @unique @db.Uuid
+  caseType    String
+  status      CaseAiStatus @default(EMPTY)
+  dataJson    Json
+  provenanceJson Json
+  overridesJson Json
+  uploadsConsidered Int @default(0)
+  lastRunAt   DateTime?
+  lastRunById String?  @db.Uuid
+  lastError   String?
+  // 'real' | 'dry-run' — surfaces in the UI so users know whether the
+  // extraction came from a real model call.
+  lastMode    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum CaseAiStatus {
+  EMPTY
+  RUNNING
+  READY
+  FAILED
 }

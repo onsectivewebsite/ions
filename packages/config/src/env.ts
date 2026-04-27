@@ -67,6 +67,16 @@ const envSchema = z.object({
   CRON_SEAT_RECONCILE: z.string().default('0 2 * * *'), // daily at 02:00 UTC
 
   ANTHROPIC_API_KEY: z.string().optional(),
+  // Default model for Phase 6 AI extraction. Override per-tenant if a firm
+  // wants to use a different tier (Sonnet for cheaper/faster extraction).
+  ANTHROPIC_MODEL: z.string().default('claude-opus-4-7'),
+  // Force dry-run regardless of API key — useful for staging/dev where the
+  // key exists but you don't want to burn tokens.
+  AI_DRY_RUN: z
+    .string()
+    .transform((v) => v === 'true' || v === '1')
+    .pipe(z.boolean())
+    .default('false'),
 
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
   SENTRY_DSN: z.string().optional(),

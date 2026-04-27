@@ -42,6 +42,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       reports: { read: 'branch', write: false, delete: false },
       intake: { read: 'branch', write: 'branch', delete: false },
       retainer: { read: 'branch', write: 'branch', delete: false },
+      ai: { read: 'branch', write: 'branch', delete: false },
       // Phase 2 administrative scopes — branch managers can run their branch.
       users: { read: 'branch', write: 'branch', delete: 'branch' },
       branches: { read: 'branch', write: false, delete: false },
@@ -62,6 +63,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       intake: { read: 'branch', write: false, delete: false },
       appointments: { read: 'own', write: 'own', delete: false },
       retainer: { read: 'assigned', write: 'assigned', delete: false },
+      ai: { read: 'assigned', write: 'assigned', delete: false },
     },
   },
   {
@@ -75,6 +77,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       intake: { read: 'branch', write: 'branch', delete: false },
       appointments: { read: 'own', write: 'own', delete: false },
       retainer: { read: 'assigned', write: 'assigned', delete: false },
+      ai: { read: 'assigned', write: 'assigned', delete: false },
     },
   },
   {
@@ -83,6 +86,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       clients: { read: 'case', write: 'case', delete: false },
       cases: { read: 'assigned', write: 'assigned', delete: false },
       documents: { read: 'case', write: 'case', delete: false },
+      ai: { read: 'case', write: 'case', delete: false },
     },
   },
   {
@@ -91,6 +95,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       clients: { read: 'case', write: 'case', delete: false },
       cases: { read: 'assigned', write: 'assigned', delete: false },
       documents: { read: 'case', write: 'case', delete: false },
+      ai: { read: 'case', write: 'case', delete: false },
     },
   },
   {
