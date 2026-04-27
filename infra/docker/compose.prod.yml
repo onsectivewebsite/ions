@@ -100,6 +100,7 @@ services:
       STRIPE_TRIAL_DAYS: ${STRIPE_TRIAL_DAYS:-14}
       ENABLE_CRON: ${ENABLE_CRON:-true}
       CRON_SEAT_RECONCILE: ${CRON_SEAT_RECONCILE:-0 2 * * *}
+      SEED_DEMO_TENANT: ${SEED_DEMO_TENANT:-false}
     # Loopback only. Port 18081 chosen to avoid clashes with CloudPanel and
     # any host monitoring agents in the lower ranges.
     ports:

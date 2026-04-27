@@ -14,6 +14,10 @@ const SUPERADMIN_EMAIL = process.env.SEED_SUPERADMIN_EMAIL ?? 'admin@onsective.c
 const SUPERADMIN_PW = process.env.SEED_SUPERADMIN_PASSWORD ?? 'OnsecBoad!ChangeMe123';
 
 // Demo law firm + its first admin (the actual customer-facing user).
+// Default true for dev convenience. Production .env.production should set
+// SEED_DEMO_TENANT=false so re-running seed never re-creates demo data.
+const SEED_DEMO_TENANT =
+  (process.env.SEED_DEMO_TENANT ?? 'true').toLowerCase() !== 'false';
 const DEMO_TENANT_SLUG = process.env.SEED_DEMO_TENANT_SLUG ?? 'demo-law-firm';
 const DEMO_TENANT_NAME = process.env.SEED_DEMO_TENANT_NAME ?? 'Demo Law Firm';
 const DEMO_ADMIN_EMAIL = process.env.SEED_DEMO_ADMIN_EMAIL ?? 'rk9814289618@gmail.com';
@@ -194,7 +198,13 @@ async function main(): Promise<void> {
   }
   console.log(`✓ plans: ${PLANS.length}`);
 
-  // 2. Demo tenant — link to GROWTH plan
+  // 2-5. Demo tenant + branch + admin user. Skipped entirely when
+  // SEED_DEMO_TENANT=false — production should set that to keep the seed
+  // idempotent for plans + superadmin only.
+  if (!SEED_DEMO_TENANT) {
+    console.log('  SEED_DEMO_TENANT=false — skipping demo tenant + demo admin user');
+    return;
+  }
   const growthPlanId = planByCode.get('GROWTH')!;
   const demoBillingDetails = {
     contactName: 'Onsective Admin',
@@ -210,6 +220,13 @@ async function main(): Promise<void> {
     taxId: '123456789RT0001',
     taxIdType: 'ca_gst_hst',
   };
+  const existingTenant = await prisma.tenant.findUnique({ where: { slug: DEMO_TENANT_SLUG } });
+  if (existingTenant && (existingTenant.deletedAt || existingTenant.status === 'CANCELED')) {
+    console.log(
+      `✓ tenant: ${DEMO_TENANT_SLUG} (deleted/canceled; left alone — set SEED_DEMO_TENANT=false to silence)`,
+    );
+    return;
+  }
   const tenant = await prisma.tenant.upsert({
     where: { slug: DEMO_TENANT_SLUG },
     update: { displayName: DEMO_TENANT_NAME, planId: growthPlanId, ...demoBillingDetails },
@@ -290,7 +307,12 @@ async function main(): Promise<void> {
   const existingFirmAdmin = await prisma.user.findUnique({
     where: { tenantId_email: { tenantId: tenant.id, email: DEMO_ADMIN_EMAIL } },
   });
-  if (existingFirmAdmin) {
+  if (existingFirmAdmin && existingFirmAdmin.deletedAt) {
+    // Demo admin was deleted via the UI. Respect that — don't resurrect.
+    console.log(
+      `✓ firm admin: ${DEMO_ADMIN_EMAIL} (soft-deleted; left alone — set SEED_DEMO_TENANT=false to silence)`,
+    );
+  } else if (existingFirmAdmin) {
     await prisma.user.update({
       where: { id: existingFirmAdmin.id },
       data: { status: 'ACTIVE', roleId: adminRoleId, branchId: branch.id },
