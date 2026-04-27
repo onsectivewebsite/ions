@@ -18,6 +18,11 @@ import {
   twilioRecordingStatusHandler,
   twilioSmsIncomingHandler,
 } from './webhooks/twilio.js';
+import {
+  metaLeadsVerifyHandler,
+  metaLeadsWebhookHandler,
+} from './webhooks/meta.js';
+import { tiktokLeadsWebhookHandler } from './webhooks/tiktok.js';
 import { leadsIngestHandler } from './routes/leads-ingest.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
@@ -52,6 +57,13 @@ const twilioBody = express.urlencoded({ extended: false, limit: '128kb' });
 app.post('/api/v1/webhooks/twilio-voice/status', twilioBody, twilioVoiceStatusHandler);
 app.post('/api/v1/webhooks/twilio-recording/status', twilioBody, twilioRecordingStatusHandler);
 app.post('/api/v1/webhooks/twilio-sms/incoming', twilioBody, twilioSmsIncomingHandler);
+
+// Meta + TikTok lead webhooks — raw body so HMAC can be checked against
+// original bytes. Meta also needs a GET handler for subscription verification.
+const adsBody = express.raw({ type: 'application/json', limit: '512kb' });
+app.get('/api/v1/webhooks/meta-leads', metaLeadsVerifyHandler);
+app.post('/api/v1/webhooks/meta-leads', adsBody, metaLeadsWebhookHandler);
+app.post('/api/v1/webhooks/tiktok-leads', adsBody, tiktokLeadsWebhookHandler);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

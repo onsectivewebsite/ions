@@ -4,10 +4,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   CreditCard,
+  Facebook,
   KeyRound,
+  Music2,
   Palette,
   Phone,
   Shield,
+  Workflow,
   ChevronRight,
   type LucideIcon,
 } from 'lucide-react';
@@ -116,6 +119,24 @@ export default function SettingsIndexPage() {
       icon: Phone,
       title: 'Twilio',
       description: 'Voice + SMS credentials. Dry-run until configured.',
+    });
+    tiles.push({
+      href: '/settings/integrations/meta',
+      icon: Facebook,
+      title: 'Meta Lead Ads',
+      description: 'Ingest leads from Facebook + Instagram lead-gen forms.',
+    });
+    tiles.push({
+      href: '/settings/integrations/tiktok',
+      icon: Music2,
+      title: 'TikTok Lead Gen',
+      description: 'Ingest leads from TikTok lead-generation ads.',
+    });
+    tiles.push({
+      href: '/settings/lead-rules',
+      icon: Workflow,
+      title: 'Lead routing rules',
+      description: 'Auto-assign inbound leads by source, language, branch, or hour.',
     });
   }
 

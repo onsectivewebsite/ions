@@ -17,6 +17,8 @@ COPY packages/ui/package.json packages/ui/
 COPY packages/integrations/stripe/package.json packages/integrations/stripe/
 COPY packages/integrations/r2/package.json packages/integrations/r2/
 COPY packages/integrations/twilio/package.json packages/integrations/twilio/
+COPY packages/integrations/meta/package.json packages/integrations/meta/
+COPY packages/integrations/tiktok/package.json packages/integrations/tiktok/
 RUN pnpm install --frozen-lockfile
 
 # ─── builder ───────────────────────────────────────────────────────────────

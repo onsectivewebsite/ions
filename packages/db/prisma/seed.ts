@@ -44,6 +44,8 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       documents: { read: 'branch', write: 'branch', delete: 'branch' },
       calls: { read: 'branch', write: 'branch', delete: false },
       campaigns: { read: 'branch', write: 'branch', delete: false },
+      leadRules: { read: 'branch', write: false, delete: false },
+      reports: { read: 'branch', write: false, delete: false },
       users: { read: 'branch', write: 'branch', delete: 'branch' },
       branches: { read: 'branch', write: false, delete: false },
       audit: { read: 'branch', write: false, delete: false },
@@ -95,6 +97,7 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       clients: { read: 'own', write: false, delete: false },
       calls: { read: 'own', write: 'own', delete: false },
       campaigns: { read: 'branch', write: false, delete: false },
+      reports: { read: 'own', write: false, delete: false },
     },
   },
   {

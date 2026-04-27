@@ -42,6 +42,8 @@ model Tenant {
   seatCount       Int          @default(0)
   branding        Json
   twilio          Json?
+  meta            Json?
+  tiktok          Json?
   emailFrom       String?
   locale          String       @default("en-CA")
   timezone        String       @default("America/Toronto")

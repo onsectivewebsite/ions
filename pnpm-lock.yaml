@@ -35,6 +35,9 @@ importers:
       '@onsecboad/email':
         specifier: workspace:*
         version: link:../../packages/email
+      '@onsecboad/meta':
+        specifier: workspace:*
+        version: link:../../packages/integrations/meta
       '@onsecboad/r2':
         specifier: workspace:*
         version: link:../../packages/integrations/r2
@@ -44,6 +47,9 @@ importers:
       '@onsecboad/tenancy':
         specifier: workspace:*
         version: link:../../packages/tenancy
+      '@onsecboad/tiktok':
+        specifier: workspace:*
+        version: link:../../packages/integrations/tiktok
       '@onsecboad/twilio':
         specifier: workspace:*
         version: link:../../packages/integrations/twilio
@@ -240,6 +246,19 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
+  packages/integrations/meta:
+    dependencies:
+      '@onsecboad/auth':
+        specifier: workspace:*
+        version: link:../../auth
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.39)
+
   packages/integrations/r2:
     dependencies:
       '@aws-sdk/client-s3':
@@ -267,6 +286,19 @@ importers:
       stripe:
         specifier: ^17.3.1
         version: 17.7.0
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.39)
+
+  packages/integrations/tiktok:
+    dependencies:
+      '@onsecboad/auth':
+        specifier: workspace:*
+        version: link:../../auth
     devDependencies:
       typescript:
         specifier: ^5.6.0

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  BarChart3,
   Bell,
   Building,
   Building2,
@@ -12,6 +13,7 @@ import {
   Home,
   KeyRound,
   LogOut,
+  Megaphone,
   Phone,
   Search,
   Settings,
@@ -69,6 +71,8 @@ const FIRM_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Home },
   { href: '/leads', label: 'Leads', icon: Users, permit: { resource: 'leads', action: 'read' } },
   { href: '/calls', label: 'Calls', icon: Phone, permit: { resource: 'calls', action: 'read' } },
+  { href: '/marketing/campaigns', label: 'Campaigns', icon: Megaphone, permit: { resource: 'campaigns', action: 'read' } },
+  { href: '/reports', label: 'Reports', icon: BarChart3, permit: { resource: 'reports', action: 'read' } },
   { href: '/clients', label: 'Clients', icon: Users, permit: { resource: 'clients', action: 'read' } },
   { href: '/cases', label: 'Cases', icon: Shield, permit: { resource: 'cases', action: 'read' } },
   { href: '/f/branches', label: 'Branches', icon: Building, permit: { resource: 'branches', action: 'read' } },

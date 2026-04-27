@@ -14,6 +14,11 @@ import { apiKeyRouter } from './routers/api-key.js';
 import { callRouter } from './routers/call.js';
 import { smsRouter } from './routers/sms.js';
 import { twilioConfigRouter } from './routers/twilio-config.js';
+import { metaConfigRouter } from './routers/meta-config.js';
+import { tiktokConfigRouter } from './routers/tiktok-config.js';
+import { leadRuleRouter } from './routers/lead-rule.js';
+import { campaignRouter } from './routers/campaign.js';
+import { kpiRouter } from './routers/kpi.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -31,6 +36,11 @@ export const appRouter = router({
   calls: callRouter,
   sms: smsRouter,
   twilioConfig: twilioConfigRouter,
+  metaConfig: metaConfigRouter,
+  tiktokConfig: tiktokConfigRouter,
+  leadRule: leadRuleRouter,
+  campaign: campaignRouter,
+  kpi: kpiRouter,
 });
 
 export type AppRouter = typeof appRouter;
