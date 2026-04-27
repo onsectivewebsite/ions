@@ -28,7 +28,8 @@
       "@onsecboad/email": ["packages/email/src"],
       "@onsecboad/ui": ["packages/ui/src"],
       "@onsecboad/stripe": ["packages/integrations/stripe/src"],
-      "@onsecboad/r2": ["packages/integrations/r2/src"]
+      "@onsecboad/r2": ["packages/integrations/r2/src"],
+      "@onsecboad/twilio": ["packages/integrations/twilio/src"]
     }
   }
 }

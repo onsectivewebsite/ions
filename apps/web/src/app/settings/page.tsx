@@ -6,6 +6,7 @@ import {
   CreditCard,
   KeyRound,
   Palette,
+  Phone,
   Shield,
   ChevronRight,
   type LucideIcon,
@@ -109,6 +110,12 @@ export default function SettingsIndexPage() {
       icon: KeyRound,
       title: 'API keys',
       description: 'Bearer tokens for posting leads from external systems.',
+    });
+    tiles.push({
+      href: '/settings/integrations/twilio',
+      icon: Phone,
+      title: 'Twilio',
+      description: 'Voice + SMS credentials. Dry-run until configured.',
     });
   }
 

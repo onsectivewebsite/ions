@@ -146,6 +146,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
+  const [smsOpen, setSmsOpen] = useState(false);
 
   async function refresh(): Promise<void> {
     const token = getAccessToken();
@@ -278,21 +280,40 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             </div>
           ) : null}
 
-          {/* Action bar — call/sms/email are stubbed for slice 3.3 */}
+          {/* Action bar */}
           <Card>
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
                 size="sm"
-                disabled
-                title="Twilio integration ships in slice 3.3"
+                disabled={!lead.phone || lead.dncFlag}
+                title={
+                  lead.dncFlag
+                    ? 'Lead is Do Not Call'
+                    : !lead.phone
+                      ? 'No phone on file'
+                      : 'Place a call via Twilio'
+                }
+                onClick={() => setCallOpen(true)}
               >
                 <Phone size={14} /> Call
               </Button>
-              <Button variant="secondary" size="sm" disabled title="Slice 3.3">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!lead.phone || lead.dncFlag}
+                title={
+                  lead.dncFlag
+                    ? 'Lead is Do Not Call'
+                    : !lead.phone
+                      ? 'No phone on file'
+                      : 'Send an SMS'
+                }
+                onClick={() => setSmsOpen(true)}
+              >
                 <MessageSquare size={14} /> SMS
               </Button>
-              <Button variant="secondary" size="sm" disabled title="Slice 3.3">
+              <Button variant="secondary" size="sm" disabled title="Email composer ships in a later slice">
                 <Mail size={14} /> Email
               </Button>
               <Button variant="secondary" size="sm" disabled title="Slice 4 (intake + appointments)">
@@ -422,8 +443,282 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             onError={(msg) => setError(msg)}
           />
         ) : null}
+
+        {callOpen && lead.phone ? (
+          <CallDialog
+            leadId={id}
+            leadName={fullName(lead)}
+            toNumber={lead.phone}
+            onClose={() => setCallOpen(false)}
+            onSaved={async (msg) => {
+              setCallOpen(false);
+              setInfo(msg);
+              await refresh();
+            }}
+            onError={(msg) => setError(msg)}
+          />
+        ) : null}
+
+        {smsOpen && lead.phone ? (
+          <SmsDialog
+            leadId={id}
+            leadName={fullName(lead)}
+            toNumber={lead.phone}
+            onClose={() => setSmsOpen(false)}
+            onSaved={async (msg) => {
+              setSmsOpen(false);
+              setInfo(msg);
+              await refresh();
+            }}
+            onError={(msg) => setError(msg)}
+          />
+        ) : null}
       </AppShell>
     </ThemeProvider>
+  );
+}
+
+// ─── Call modal ───────────────────────────────────────────────────────────
+
+function CallDialog({
+  leadId,
+  leadName,
+  toNumber,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  leadId: string;
+  leadName: string;
+  toNumber: string;
+  onClose: () => void;
+  onSaved: (msg: string) => void | Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const [phase, setPhase] = useState<'idle' | 'in-call' | 'wrap-up'>('idle');
+  const [callLogId, setCallLogId] = useState<string | null>(null);
+  const [mode, setMode] = useState<'real' | 'dry-run'>('dry-run');
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [tickSec, setTickSec] = useState(0);
+  const [disposition, setDisposition] = useState<string>('');
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (phase !== 'in-call' || !startedAt) return;
+    const t = setInterval(() => setTickSec(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [phase, startedAt]);
+
+  async function startCall(): Promise<void> {
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      const r = await rpcMutation<{ callLogId: string; mode: 'real' | 'dry-run' }>(
+        'call.start',
+        { leadId, toNumber },
+        { token },
+      );
+      setCallLogId(r.callLogId);
+      setMode(r.mode);
+      setStartedAt(Date.now());
+      setPhase('in-call');
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to place call');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function endCall(): Promise<void> {
+    if (!callLogId) return;
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      await rpcMutation(
+        'call.end',
+        {
+          callLogId,
+          disposition: disposition || undefined,
+          notes: notes || undefined,
+          durationSec: tickSec,
+        },
+        { token },
+      );
+      await onSaved(`Call logged · ${formatDuration(tickSec)}${disposition ? ' · ' + disposition : ''}`);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to save call');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50 w-80 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-lg)]">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+            {phase === 'idle' ? 'Place call' : phase === 'in-call' ? 'On call' : 'Wrap up'}
+          </div>
+          <div className="mt-0.5 text-sm font-medium">{leadName}</div>
+          <div className="text-xs text-[var(--color-text-muted)]">{toNumber}</div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {phase === 'idle' ? (
+        <div className="mt-3 space-y-3">
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Twilio dials {toNumber}. Click End &amp; save when the call ends — the disposition + notes
+            attach to the lead timeline.
+          </p>
+          <Button onClick={startCall} disabled={busy} className="w-full">
+            {busy ? <Spinner /> : <Phone size={14} />}
+            Start call
+          </Button>
+        </div>
+      ) : phase === 'in-call' ? (
+        <div className="mt-3 space-y-3">
+          <div className="rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] p-3 text-center">
+            <div className="text-2xl font-mono">{formatDuration(tickSec)}</div>
+            {mode === 'dry-run' ? (
+              <div className="mt-1 text-[10px] uppercase tracking-wide text-[var(--color-warning)]">
+                Twilio in dry-run — no actual call placed
+              </div>
+            ) : null}
+          </div>
+          <Button variant="danger" onClick={() => setPhase('wrap-up')} className="w-full">
+            <X size={14} /> End call
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-3 space-y-3">
+          <div className="text-xs text-[var(--color-text-muted)]">
+            Duration: <span className="font-mono">{formatDuration(tickSec)}</span>
+          </div>
+          <div>
+            <Label htmlFor="disp">Disposition</Label>
+            <select
+              id="disp"
+              value={disposition}
+              onChange={(e) => setDisposition(e.target.value)}
+              className="mt-1 h-9 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm"
+            >
+              <option value="">Choose…</option>
+              <option value="interested">Interested</option>
+              <option value="not_interested">Not interested</option>
+              <option value="voicemail">Voicemail</option>
+              <option value="callback">Callback later</option>
+              <option value="wrong_number">Wrong number</option>
+              <option value="dnc">Do not call (mark DNC)</option>
+              <option value="booked">Booked appointment</option>
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="cn">Notes</Label>
+            <textarea
+              id="cn"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-sm"
+            />
+          </div>
+          <Button onClick={endCall} disabled={busy} className="w-full">
+            {busy ? <Spinner /> : null}
+            End &amp; save
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SMS modal ────────────────────────────────────────────────────────────
+
+function SmsDialog({
+  leadId,
+  leadName,
+  toNumber,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  leadId: string;
+  leadName: string;
+  toNumber: string;
+  onClose: () => void;
+  onSaved: (msg: string) => void | Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function send(): Promise<void> {
+    if (!body.trim()) return;
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      const r = await rpcMutation<{ mode: 'real' | 'dry-run' }>(
+        'sms.send',
+        { leadId, toNumber, body },
+        { token },
+      );
+      await onSaved(r.mode === 'real' ? 'SMS sent.' : 'SMS logged (dry-run).');
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to send SMS');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-12">
+      <Card className="w-full max-w-md">
+        <div className="flex items-center justify-between border-b border-[var(--color-border-muted)] pb-3">
+          <CardTitle>Send SMS to {leadName}</CardTitle>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-[var(--radius-md)] p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="mt-4 space-y-3">
+          <div className="rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] p-2 text-xs">
+            To: <span className="font-mono">{toNumber}</span>
+          </div>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={5}
+            placeholder="Message…"
+            className="w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-sm"
+            autoFocus
+          />
+          <div className="flex items-center justify-between text-[10px] text-[var(--color-text-muted)]">
+            <span>{body.length} chars · {Math.ceil(body.length / 160) || 1} segment{body.length > 160 ? 's' : ''}</span>
+            <span>Standard rates apply</span>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={send} disabled={busy || !body.trim()}>
+              {busy ? <Spinner /> : <MessageSquare size={14} />}
+              Send
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </div>
   );
 }
 

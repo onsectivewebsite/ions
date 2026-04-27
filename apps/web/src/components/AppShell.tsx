@@ -12,6 +12,7 @@ import {
   Home,
   KeyRound,
   LogOut,
+  Phone,
   Search,
   Settings,
   Shield,
@@ -67,6 +68,7 @@ const PLATFORM_NAV: NavItem[] = [
 const FIRM_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Home },
   { href: '/leads', label: 'Leads', icon: Users, permit: { resource: 'leads', action: 'read' } },
+  { href: '/calls', label: 'Calls', icon: Phone, permit: { resource: 'calls', action: 'read' } },
   { href: '/clients', label: 'Clients', icon: Users, permit: { resource: 'clients', action: 'read' } },
   { href: '/cases', label: 'Cases', icon: Shield, permit: { resource: 'cases', action: 'read' } },
   { href: '/f/branches', label: 'Branches', icon: Building, permit: { resource: 'branches', action: 'read' } },

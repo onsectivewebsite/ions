@@ -13,6 +13,11 @@ import { appRouter } from './router.js';
 import { logger } from './logger.js';
 import { redis } from './redis.js';
 import { stripeWebhookHandler } from './webhooks/stripe.js';
+import {
+  twilioVoiceStatusHandler,
+  twilioRecordingStatusHandler,
+  twilioSmsIncomingHandler,
+} from './webhooks/twilio.js';
 import { leadsIngestHandler } from './routes/leads-ingest.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
@@ -41,6 +46,12 @@ app.post(
   express.json({ limit: '256kb' }),
   leadsIngestHandler,
 );
+
+// Twilio webhooks — Twilio sends url-encoded form bodies, not JSON.
+const twilioBody = express.urlencoded({ extended: false, limit: '128kb' });
+app.post('/api/v1/webhooks/twilio-voice/status', twilioBody, twilioVoiceStatusHandler);
+app.post('/api/v1/webhooks/twilio-recording/status', twilioBody, twilioRecordingStatusHandler);
+app.post('/api/v1/webhooks/twilio-sms/incoming', twilioBody, twilioSmsIncomingHandler);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

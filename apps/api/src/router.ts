@@ -11,6 +11,9 @@ import { roleRouter } from './routers/role.js';
 import { auditRouter } from './routers/audit.js';
 import { leadRouter } from './routers/lead.js';
 import { apiKeyRouter } from './routers/api-key.js';
+import { callRouter } from './routers/call.js';
+import { smsRouter } from './routers/sms.js';
+import { twilioConfigRouter } from './routers/twilio-config.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -25,6 +28,9 @@ export const appRouter = router({
   audit: auditRouter,
   lead: leadRouter,
   apiKey: apiKeyRouter,
+  call: callRouter,
+  sms: smsRouter,
+  twilioConfig: twilioConfigRouter,
 });
 
 export type AppRouter = typeof appRouter;

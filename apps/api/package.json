@@ -19,6 +19,7 @@
     "@onsecboad/r2": "workspace:*",
     "@onsecboad/stripe": "workspace:*",
     "@onsecboad/tenancy": "workspace:*",
+    "@onsecboad/twilio": "workspace:*",
     "@trpc/server": "^11.0.0-rc.502",
     "cors": "^2.8.5",
     "express": "^4.21.0",
