@@ -86,6 +86,7 @@ model Tenant {
   clients              Client[]
   intakeFormTemplates  IntakeFormTemplate[]
   intakeSubmissions    IntakeSubmission[]
+  appointments         Appointment[]
 
   @@index([status])
 }
@@ -123,6 +124,7 @@ model Branch {
   users     User[]  @relation("BranchUsers")
   leads     Lead[]
   clients   Client[]
+  appointments Appointment[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -155,6 +157,7 @@ model User {
   sessions        Session[]
   assignedLeads   Lead[]    @relation("LeadAssignee")
   callsAsAgent    CallLog[] @relation("CallAgent")
+  appointmentsAsProvider Appointment[] @relation("AppointmentProvider")
 
   @@unique([tenantId, email])
   @@index([tenantId, roleId])
@@ -341,6 +344,7 @@ model Lead {
   smsLogs            SmsLog[]
   emailLogs          EmailLog[]
   leadCampaigns      LeadCampaign[]
+  appointments       Appointment[]
 
   @@index([tenantId, status, createdAt])
   @@index([tenantId, branchId, assignedToId])
@@ -516,6 +520,7 @@ model Client {
   deletedAt       DateTime?
 
   intakeSubmissions IntakeSubmission[]
+  appointments      Appointment[]
 
   // One canonical client row per (firm, phone). Re-arrival lookups hit this index.
   @@unique([tenantId, phone])
@@ -573,4 +578,72 @@ model IntakeSubmission {
 
   @@index([tenantId, leadId])
   @@index([tenantId, clientId, submittedAt])
+}
+
+// Appointment — consultation, follow-up, document review, walk-in.
+// State machine:
+//   SCHEDULED → CONFIRMED → ARRIVED → IN_PROGRESS → COMPLETED
+//                  ↘  CANCELLED  ↗
+//                  ↘  NO_SHOW
+// Outcome is recorded once status reaches COMPLETED. RETAINER → kicks off
+// case-management (Phase 5); FOLLOWUP bounces the lead back to FOLLOWUP;
+// DONE closes the lead as CONVERTED (consult fulfilled, no further work).
+model Appointment {
+  id              String     @id @default(uuid()) @db.Uuid
+  tenantId        String     @db.Uuid
+  tenant          Tenant     @relation(fields: [tenantId], references: [id])
+  branchId        String?    @db.Uuid
+  branch          Branch?    @relation(fields: [branchId], references: [id])
+  clientId        String?    @db.Uuid
+  client          Client?    @relation(fields: [clientId], references: [id])
+  leadId          String?    @db.Uuid
+  lead            Lead?      @relation(fields: [leadId], references: [id])
+  providerId      String     @db.Uuid
+  provider        User       @relation("AppointmentProvider", fields: [providerId], references: [id])
+  scheduledAt     DateTime
+  durationMin     Int        @default(30)
+  kind            String     // 'consultation' | 'followup' | 'document_review' | 'walkin'
+  caseType        String?    // matches IntakeFormTemplate.caseType vocabulary
+  status          AppointmentStatus @default(SCHEDULED)
+  arrivedAt       DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+  // Money (Phase 4 captures intent; payment processing is Phase 7).
+  feeCents        Int?
+  paidAt          DateTime?
+  paymentMethod   String?    // 'card' | 'cash' | 'etransfer' | 'invoice'
+  // Outcome (recorded after consult).
+  outcome         AppointmentOutcome?
+  outcomeNotes    String?
+  retainerFeeCents Int?      // when outcome=RETAINER, the agreed retainer
+  notes           String?
+  createdBy       String     @db.Uuid
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([tenantId, scheduledAt])
+  @@index([tenantId, providerId, scheduledAt])
+  @@index([tenantId, branchId, scheduledAt])
+  @@index([tenantId, status, scheduledAt])
+  @@index([tenantId, leadId])
+  @@index([tenantId, clientId])
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  ARRIVED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AppointmentOutcome {
+  RETAINER
+  FOLLOWUP
+  DONE
+  NO_SHOW
 }

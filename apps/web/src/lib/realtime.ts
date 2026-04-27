@@ -9,6 +9,8 @@ export type RealtimeEvent =
   | { type: 'lead.created'; leadId: string; source: string; branchId: string | null }
   | { type: 'sms.received'; smsId: string; leadId: string | null; from: string; bodyPreview: string }
   | { type: 'call.status'; callId: string; status: string; agentId: string | null; leadId: string | null }
+  | { type: 'appointment.created'; appointmentId: string; scheduledAt: string; providerId: string }
+  | { type: 'appointment.outcome'; appointmentId: string; outcome: string; leadId: string | null }
   | { type: 'ping'; t: number };
 
 type Listener = (ev: RealtimeEvent) => void;
@@ -46,7 +48,15 @@ export function useRealtime(onEvent: Listener): void {
       }
     }
     // Listen on the typed event names + the default 'message' event.
-    const types = ['lead.assigned', 'lead.created', 'sms.received', 'call.status', 'ping'];
+    const types = [
+      'lead.assigned',
+      'lead.created',
+      'sms.received',
+      'call.status',
+      'appointment.created',
+      'appointment.outcome',
+      'ping',
+    ];
     types.forEach((t) => es.addEventListener(t, handle));
     es.addEventListener('message', handle);
 

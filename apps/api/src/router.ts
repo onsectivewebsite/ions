@@ -22,6 +22,7 @@ import { kpiRouter } from './routers/kpi.js';
 import { clientRouter } from './routers/client.js';
 import { intakeTemplateRouter } from './routers/intake-template.js';
 import { intakeRouter } from './routers/intake.js';
+import { appointmentRouter } from './routers/appointment.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -47,6 +48,7 @@ export const appRouter = router({
   client: clientRouter,
   intakeTemplate: intakeTemplateRouter,
   intake: intakeRouter,
+  appointment: appointmentRouter,
 });
 
 export type AppRouter = typeof appRouter;

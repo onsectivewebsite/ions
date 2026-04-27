@@ -59,6 +59,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       documents: { read: 'case', write: 'case', delete: false },
       calls: { read: 'own', write: 'own', delete: false },
       intake: { read: 'branch', write: false, delete: false },
+      appointments: { read: 'own', write: 'own', delete: false },
     },
   },
   {
@@ -70,6 +71,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       documents: { read: 'case', write: 'case', delete: false },
       calls: { read: 'own', write: 'own', delete: false },
       intake: { read: 'branch', write: 'branch', delete: false },
+      appointments: { read: 'own', write: 'own', delete: false },
     },
   },
   {

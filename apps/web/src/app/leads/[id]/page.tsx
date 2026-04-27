@@ -151,6 +151,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   const [callOpen, setCallOpen] = useState(false);
   const [smsOpen, setSmsOpen] = useState(false);
   const [intakeOpen, setIntakeOpen] = useState(false);
+  const [bookOpen, setBookOpen] = useState(false);
 
   async function refresh(): Promise<void> {
     const token = getAccessToken();
@@ -327,7 +328,12 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               >
                 <ClipboardList size={14} /> Start intake
               </Button>
-              <Button variant="secondary" size="sm" disabled title="Slice 4.2 (appointments)">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setBookOpen(true)}
+                title="Book a consultation for this lead"
+              >
                 <Calendar size={14} /> Book consult
               </Button>
               <div className="ml-auto flex gap-2">
@@ -499,6 +505,20 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             onClose={() => setIntakeOpen(false)}
             onSaved={async (msg) => {
               setIntakeOpen(false);
+              setInfo(msg);
+              await refresh();
+            }}
+            onError={(msg) => setError(msg)}
+          />
+        ) : null}
+
+        {bookOpen ? (
+          <BookConsultDialog
+            leadId={id}
+            initialCaseType={lead.caseInterest ?? null}
+            onClose={() => setBookOpen(false)}
+            onSaved={async (msg) => {
+              setBookOpen(false);
               setInfo(msg);
               await refresh();
             }}
@@ -1009,6 +1029,220 @@ function IntakeDialog({
             ) : null}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Book consult dialog ──────────────────────────────────────────────────
+
+type ProviderRow = {
+  id: string;
+  name: string;
+  email: string;
+  branchId: string | null;
+  status: string;
+  role?: { name: string } | null;
+};
+
+const KIND_OPTIONS = ['consultation', 'followup', 'document_review'] as const;
+const CASE_OPTIONS = [
+  '',
+  'work_permit',
+  'study_permit',
+  'pr',
+  'visitor_visa',
+  'citizenship',
+  'lmia',
+  'other',
+] as const;
+
+function BookConsultDialog({
+  leadId,
+  initialCaseType,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  leadId: string;
+  initialCaseType: string | null;
+  onClose: () => void;
+  onSaved: (msg: string) => void | Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const [providers, setProviders] = useState<ProviderRow[] | null>(null);
+  const [providerId, setProviderId] = useState('');
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+  const [duration, setDuration] = useState('30');
+  const [kind, setKind] = useState<(typeof KIND_OPTIONS)[number]>('consultation');
+  const [caseType, setCaseType] = useState(initialCaseType ?? '');
+  const [fee, setFee] = useState('');
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const t = getAccessToken();
+    rpcQuery<{ items: ProviderRow[] }>('user.list', { page: 1 }, { token: t })
+      .then((r) => {
+        // Lawyers + consultants are the providers; fall back to all active users
+        // if role names aren't returned by the list query.
+        const eligible = r.items.filter((u) => u.status === 'ACTIVE');
+        setProviders(eligible);
+      })
+      .catch((e) => onError(e instanceof Error ? e.message : 'Failed to load providers'));
+    // Default the date picker to today.
+    const now = new Date();
+    setDate(now.toISOString().slice(0, 10));
+    setTime('10:00');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function save(): Promise<void> {
+    if (!providerId || !date || !time) {
+      onError('Pick a provider and a date + time.');
+      return;
+    }
+    const scheduledAt = new Date(`${date}T${time}:00`);
+    if (Number.isNaN(scheduledAt.getTime())) {
+      onError('Invalid date/time.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const t = getAccessToken();
+      await rpcMutation(
+        'appointment.create',
+        {
+          leadId,
+          providerId,
+          scheduledAt: scheduledAt.toISOString(),
+          durationMin: Number(duration) || 30,
+          kind,
+          caseType: caseType || undefined,
+          feeCents: fee ? Math.round(Number(fee) * 100) : undefined,
+          notes: notes || undefined,
+        },
+        { token: t },
+      );
+      await onSaved('Consultation booked.');
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Booking failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Book consultation</h2>
+          <button
+            onClick={onClose}
+            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          >
+            Close
+          </button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <Label>Provider</Label>
+            {providers === null ? (
+              <Skeleton className="h-10" />
+            ) : (
+              <select
+                className="h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm"
+                value={providerId}
+                onChange={(e) => setProviderId(e.target.value)}
+              >
+                <option value="">Select…</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} · {p.email}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <Label>Date</Label>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+            <div>
+              <Label>Time</Label>
+              <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+            </div>
+            <div>
+              <Label>Duration (min)</Label>
+              <Input
+                type="number"
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+                min={5}
+                max={480}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label>Kind</Label>
+              <select
+                className="h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm"
+                value={kind}
+                onChange={(e) => setKind(e.target.value as (typeof KIND_OPTIONS)[number])}
+              >
+                {KIND_OPTIONS.map((k) => (
+                  <option key={k} value={k}>
+                    {k.replace('_', ' ')}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Case type</Label>
+              <select
+                className="h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm"
+                value={caseType}
+                onChange={(e) => setCaseType(e.target.value)}
+              >
+                {CASE_OPTIONS.map((c) => (
+                  <option key={c} value={c}>
+                    {c ? c.replace('_', ' ') : 'None'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <Label>Consultation fee (CAD, optional)</Label>
+            <Input
+              type="number"
+              value={fee}
+              onChange={(e) => setFee(e.target.value)}
+              placeholder="100"
+            />
+          </div>
+          <div>
+            <Label>Notes</Label>
+            <textarea
+              className="min-h-[80px] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Anything the provider should know before the consult."
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={save} disabled={busy || !providerId || !date || !time}>
+              {busy ? <Spinner /> : <Calendar size={14} />}
+              Book
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );
