@@ -30,23 +30,44 @@ export async function createContext({ req }: CreateExpressContextOptions): Promi
       session = null;
     }
   }
-  // Reject sessions belonging to dead tenants — even on shared procedures
-  // (user.me, auth.signOut, etc). The JWT is technically valid but the
-  // tenant has been deleted/canceled/suspended. Treat the request as
-  // unauthenticated so the client gets a clean redirect to sign-in.
+  // Reject sessions belonging to dead tenants OR disabled/deleted users —
+  // even on shared procedures (user.me, auth.signOut, etc). The JWT is
+  // technically valid but the underlying actor is no longer allowed in.
+  // Catches:
+  //   - tenant deleted / canceled / suspended  → "firm gone"
+  //   - user disabled / deleted                → "you specifically gone"
+  //
+  // Without this, disabled users could keep using the app for up to the
+  // access-token TTL (15 min default) on their existing JWT.
   if (session && session.scope === 'firm' && session.tenantId) {
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: session.tenantId },
-      select: { status: true, deletedAt: true },
-    });
-    if (
+    const [tenant, user] = await Promise.all([
+      prisma.tenant.findUnique({
+        where: { id: session.tenantId },
+        select: { status: true, deletedAt: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: session.sub },
+        select: { status: true, deletedAt: true },
+      }),
+    ]);
+    const tenantDead =
       !tenant ||
       tenant.deletedAt ||
       tenant.status === 'CANCELED' ||
-      tenant.status === 'SUSPENDED'
-    ) {
+      tenant.status === 'SUSPENDED';
+    const userDead = !user || user.deletedAt || user.status !== 'ACTIVE';
+    if (tenantDead || userDead) {
       session = null;
     }
+  }
+  if (session && session.scope === 'platform') {
+    // Platform users have no status field, but we still check existence
+    // so a deleted PlatformUser row can't keep operating.
+    const pu = await prisma.platformUser.findUnique({
+      where: { id: session.sub },
+      select: { id: true },
+    });
+    if (!pu) session = null;
   }
   const cfCountry = (req.header('cf-ipcountry') ?? '').toUpperCase().trim();
   // Cloudflare uses 'XX' / 'T1' / 'XX' for unknown / Tor / unidentified.
