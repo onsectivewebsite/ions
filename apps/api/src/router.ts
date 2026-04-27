@@ -26,6 +26,8 @@ import { appointmentRouter } from './routers/appointment.js';
 import { caseRouter } from './routers/case.js';
 import { retainerTemplateRouter } from './routers/retainer-template.js';
 import { retainerRouter } from './routers/retainer.js';
+import { documentChecklistTemplateRouter } from './routers/document-checklist-template.js';
+import { documentCollectionRouter } from './routers/document-collection.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -55,6 +57,8 @@ export const appRouter = router({
   cases: caseRouter,
   retainerTemplate: retainerTemplateRouter,
   retainer: retainerRouter,
+  documentChecklistTemplate: documentChecklistTemplateRouter,
+  documentCollection: documentCollectionRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -25,6 +25,12 @@ import {
 import { tiktokLeadsWebhookHandler } from './webhooks/tiktok.js';
 import { leadsIngestHandler } from './routes/leads-ingest.js';
 import { streamHandler } from './routes/stream.js';
+import {
+  staffUploadHandler,
+  publicCollectionGetHandler,
+  publicCollectionUploadHandler,
+  publicCollectionSubmitHandler,
+} from './routes/document-upload.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
 const env = loadEnv();
@@ -69,6 +75,15 @@ app.post('/api/v1/webhooks/tiktok-leads', adsBody, tiktokLeadsWebhookHandler);
 // SSE realtime stream — bearer token via ?token= since EventSource can't
 // set headers. Firm-scope only; auth is checked inside the handler.
 app.get('/api/v1/stream', streamHandler);
+
+// Document uploads — body is raw bytes (Content-Type:
+// application/octet-stream), metadata in query string. 50 MB cap covers
+// typical immigration PDFs/photos with headroom.
+const fileBody = express.raw({ type: '*/*', limit: '50mb' });
+app.post('/api/v1/cases/:caseId/upload', fileBody, staffUploadHandler);
+app.get('/api/v1/dc/:token', publicCollectionGetHandler);
+app.post('/api/v1/dc/:token/upload', fileBody, publicCollectionUploadHandler);
+app.post('/api/v1/dc/:token/submit', express.json({ limit: '4kb' }), publicCollectionSubmitHandler);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

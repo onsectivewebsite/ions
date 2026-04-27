@@ -8,7 +8,12 @@
  *  - Dry-run: short-circuits every method, logs the call, returns plausible
  *    URLs so the rest of the system can be exercised without R2 credentials.
  */
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { loadEnv } from '@onsecboad/config';
 
@@ -83,6 +88,19 @@ export async function uploadBuffer(
     }),
   );
   return { url: publicUrlFor(key), bytes: body.length };
+}
+
+/**
+ * Delete an object by key. Used by the document-collection feature to
+ * enforce the "re-upload deletes prior version on disk" invariant.
+ * Idempotent — succeeds even if the object isn't there.
+ */
+export async function deleteObject(key: string): Promise<void> {
+  if (r2Mode === 'dry-run') {
+    log('deleteObject', { key });
+    return;
+  }
+  await realClient!.send(new DeleteObjectCommand({ Bucket: env.R2_BUCKET!, Key: key }));
 }
 
 /** Returns a 1-hour signed URL for a key (the docs spec). */

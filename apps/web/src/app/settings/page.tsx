@@ -6,6 +6,7 @@ import {
   ClipboardList,
   CreditCard,
   Facebook,
+  FileCheck,
   FileSignature,
   KeyRound,
   Music2,
@@ -151,6 +152,12 @@ export default function SettingsIndexPage() {
       icon: FileSignature,
       title: 'Retainer templates',
       description: 'Per-case-type retainer boilerplate with merge tags.',
+    });
+    tiles.push({
+      href: '/settings/document-checklists',
+      icon: FileCheck,
+      title: 'Document checklists',
+      description: 'Per-case-type list of files the client must upload.',
     });
   }
 

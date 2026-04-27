@@ -91,6 +91,9 @@ model Tenant {
   cases                Case[]
   retainerTemplates    RetainerTemplate[]
   retainerAgreements   RetainerAgreement[]
+  documentChecklistTemplates DocumentChecklistTemplate[]
+  documentCollections        DocumentCollection[]
+  documentUploads            DocumentUpload[]
 
   @@index([status])
 }
@@ -791,4 +794,114 @@ enum RetainerStatus {
   LAWYER_APPROVED
   SIGNED
   VOID
+}
+
+// ─── Phase 5.3: Document collection ────────────────────────────────────────
+
+// DocumentChecklistTemplate — per firm, per caseType. Same selection
+// semantics as RetainerTemplate (most specific active wins; null caseType
+// is the firm-wide default fallback).
+//
+// itemsJson shape:
+//   [{
+//     key: string,            // snake_case, unique within template
+//     label: string,
+//     description?: string,   // shown to the client on the public page
+//     required?: boolean,
+//     accept?: string[],      // mime types or extensions: ['application/pdf', '.png']
+//     maxSizeMb?: number      // per-file cap; default 25
+//   }]
+model DocumentChecklistTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  caseType    String?
+  name        String
+  description String?
+  itemsJson   Json
+  isActive    Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  createdBy   String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  collections DocumentCollection[]
+
+  @@index([tenantId, caseType, isActive])
+}
+
+// DocumentCollection — one per case. Tracks the public link state and
+// the snapshot of items at "send" time so future template edits don't
+// retroactively change what the client sees.
+//
+// Lifecycle:
+//   DRAFT       → SENT (link generated; client can upload)
+//                → LOCKED (client clicked Submit; link inert)
+//                → UNLOCKED (admin override; back to upload-allowed)
+// LOCKED ↔ UNLOCKED toggles by FIRM_ADMIN / BRANCH_MANAGER only.
+model DocumentCollection {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @db.Uuid
+  tenant               Tenant   @relation(fields: [tenantId], references: [id])
+  caseId               String   @unique @db.Uuid    // one current collection per case
+  templateId           String?  @db.Uuid
+  template             DocumentChecklistTemplate? @relation(fields: [templateId], references: [id])
+  status               DocumentCollectionStatus @default(DRAFT)
+  itemsJson            Json     // snapshot of required items for THIS case
+  // Public link
+  publicTokenHash      String?  @unique
+  publicTokenExpiresAt DateTime?
+  sentAt               DateTime?
+  sentVia              String?  // 'sms' | 'email'
+  // Lock state (per docs invariant: "Document collection link locks
+  // after client submission; only Law Firm Admin or Branch Manager can unlock")
+  submittedAt          DateTime?  // client clicked Submit on the public page
+  lockedAt             DateTime?
+  unlockedAt           DateTime?
+  unlockedById         String?  @db.Uuid
+  unlockReason         String?
+  createdBy            String   @db.Uuid
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  uploads              DocumentUpload[]
+
+  @@index([tenantId, status])
+}
+
+enum DocumentCollectionStatus {
+  DRAFT
+  SENT
+  LOCKED
+  UNLOCKED
+}
+
+// DocumentUpload — one row per file actually uploaded. Versioning via
+// supersededAt: re-uploading the same itemKey marks the prior row
+// superseded AND deletes the prior R2 object (per docs invariant:
+// "Document re-upload deletes prior version on disk").
+model DocumentUpload {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  collectionId    String   @db.Uuid
+  collection      DocumentCollection @relation(fields: [collectionId], references: [id])
+  caseId          String   @db.Uuid
+  itemKey         String   // matches an item in the collection's itemsJson
+  // Source of upload — null uploadedById = client uploaded via public link.
+  uploadedById    String?  @db.Uuid
+  uploadedByName  String?  // for client uploads (typed name)
+  // File metadata
+  fileName        String
+  contentType     String
+  sizeBytes       Int
+  r2Key           String   // path in the bucket
+  sha256          String?  // hex digest, optional integrity check
+  // Versioning
+  supersededAt    DateTime?
+  supersededById  String?  @db.Uuid
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, caseId, itemKey, supersededAt])
+  @@index([collectionId])
 }

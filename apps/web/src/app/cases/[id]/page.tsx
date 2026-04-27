@@ -28,6 +28,7 @@ import { getAccessToken } from '../../../lib/session';
 import { AppShell, type ShellUser } from '../../../components/AppShell';
 import { useRealtime } from '../../../lib/realtime';
 import { RetainerCard } from '../../../components/retainer/RetainerCard';
+import { DocumentsCard } from '../../../components/documents/DocumentsCard';
 
 type CaseStatus =
   | 'PENDING_RETAINER'
@@ -355,6 +356,17 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                 lawyer={c.lawyer}
                 client={c.client}
                 onChanged={refresh}
+                onError={setError}
+              />
+
+              {/* Document collection (Phase 5.3) — staff upload + send public
+                  link. Card only renders meaningfully once the case has moved
+                  past retainer signature; before that, it shows a placeholder. */}
+              <DocumentsCard
+                caseId={id}
+                caseStatus={c.status}
+                clientPhone={c.client.phone}
+                clientEmail={c.client.email}
                 onError={setError}
               />
 
