@@ -47,6 +47,7 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       leadRules: { read: 'branch', write: false, delete: false },
       reports: { read: 'branch', write: false, delete: false },
       intake: { read: 'branch', write: 'branch', delete: false },
+      retainer: { read: 'branch', write: 'branch', delete: false },
       users: { read: 'branch', write: 'branch', delete: 'branch' },
       branches: { read: 'branch', write: false, delete: false },
       audit: { read: 'branch', write: false, delete: false },
@@ -65,6 +66,7 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       calls: { read: 'own', write: 'own', delete: false },
       intake: { read: 'branch', write: false, delete: false },
       appointments: { read: 'own', write: 'own', delete: false },
+      retainer: { read: 'assigned', write: 'assigned', delete: false },
     },
   },
   {
@@ -77,6 +79,7 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       calls: { read: 'own', write: 'own', delete: false },
       intake: { read: 'branch', write: 'branch', delete: false },
       appointments: { read: 'own', write: 'own', delete: false },
+      retainer: { read: 'assigned', write: 'assigned', delete: false },
     },
   },
   {

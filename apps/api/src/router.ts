@@ -24,6 +24,8 @@ import { intakeTemplateRouter } from './routers/intake-template.js';
 import { intakeRouter } from './routers/intake.js';
 import { appointmentRouter } from './routers/appointment.js';
 import { caseRouter } from './routers/case.js';
+import { retainerTemplateRouter } from './routers/retainer-template.js';
+import { retainerRouter } from './routers/retainer.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -51,6 +53,8 @@ export const appRouter = router({
   intake: intakeRouter,
   appointment: appointmentRouter,
   cases: caseRouter,
+  retainerTemplate: retainerTemplateRouter,
+  retainer: retainerRouter,
 });
 
 export type AppRouter = typeof appRouter;

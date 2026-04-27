@@ -24,6 +24,7 @@ import { router } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
 import { logger } from '../logger.js';
 import { publishEvent } from '../lib/realtime.js';
+import { ensureRetainerAgreement } from './retainer.js';
 
 const STATUS = [
   'PENDING_RETAINER',
@@ -555,5 +556,18 @@ export async function autoCreateCaseFromRetainer(
     { caseId: created.id, appointmentId: appt.id, tenantId: args.tenantId },
     'case auto-created from retainer outcome',
   );
+
+  // Auto-instantiate the retainer agreement so the lawyer always sees a
+  // ready-to-review draft on the case detail page.
+  try {
+    await ensureRetainerAgreement(prisma, {
+      tenantId: args.tenantId,
+      caseId: created.id,
+      actorId: args.actorId,
+    });
+  } catch (e) {
+    logger.warn({ err: e, caseId: created.id }, 'retainer auto-instantiate failed');
+  }
+
   return { caseId: created.id, created: true };
 }

@@ -6,6 +6,7 @@ import {
   ClipboardList,
   CreditCard,
   Facebook,
+  FileSignature,
   KeyRound,
   Music2,
   Palette,
@@ -144,6 +145,12 @@ export default function SettingsIndexPage() {
       icon: ClipboardList,
       title: 'Intake forms',
       description: 'Per-case-type forms used during reception walk-ins.',
+    });
+    tiles.push({
+      href: '/settings/retainer-templates',
+      icon: FileSignature,
+      title: 'Retainer templates',
+      description: 'Per-case-type retainer boilerplate with merge tags.',
     });
   }
 

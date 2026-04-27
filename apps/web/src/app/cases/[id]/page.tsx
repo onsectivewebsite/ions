@@ -27,6 +27,7 @@ import { rpcMutation, rpcQuery } from '../../../lib/api';
 import { getAccessToken } from '../../../lib/session';
 import { AppShell, type ShellUser } from '../../../components/AppShell';
 import { useRealtime } from '../../../lib/realtime';
+import { RetainerCard } from '../../../components/retainer/RetainerCard';
 
 type CaseStatus =
   | 'PENDING_RETAINER'
@@ -345,6 +346,17 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                   ) : null}
                 </dl>
               </Card>
+
+              {/* Retainer agreement (Phase 5.2) — auto-loads, exposes
+                  approve/edit/sign actions appropriate to current state. */}
+              <RetainerCard
+                caseId={id}
+                caseStatus={c.status}
+                lawyer={c.lawyer}
+                client={c.client}
+                onChanged={refresh}
+                onError={setError}
+              />
 
               <Card>
                 <CardTitle>Money</CardTitle>

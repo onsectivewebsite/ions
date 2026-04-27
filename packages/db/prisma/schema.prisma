@@ -89,6 +89,8 @@ model Tenant {
   appointments         Appointment[]
   // Phase 5 back-relations
   cases                Case[]
+  retainerTemplates    RetainerTemplate[]
+  retainerAgreements   RetainerAgreement[]
 
   @@index([status])
 }
@@ -163,6 +165,7 @@ model User {
   appointmentsAsProvider Appointment[] @relation("AppointmentProvider")
   casesAsLawyer   Case[]    @relation("CaseLawyer")
   casesAsFiler    Case[]    @relation("CaseFiler")
+  retainersApproved RetainerAgreement[] @relation("RetainerApprovedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId, roleId])
@@ -722,4 +725,70 @@ enum CaseStatus {
   COMPLETED                    // approved / finalized
   WITHDRAWN                    // client withdrew
   ABANDONED                    // client abandoned (no comms / no payment)
+}
+
+// Retainer template — boilerplate per case type. {{merge.tags}} get
+// substituted server-side when an Agreement is instantiated for a case.
+// One default per (tenant, caseType=null) is the firm-wide fallback when
+// a case-type-specific template doesn't exist.
+model RetainerTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  // null caseType = firm-wide default fallback.
+  caseType    String?
+  name        String
+  description String?
+  contentMd   String   @db.Text  // Markdown body with {{merge.tags}}
+  isActive    Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  createdBy   String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, caseType, isActive])
+}
+
+// Retainer agreement — one current instance per case. Lifecycle:
+//   DRAFT (auto-rendered) → LAWYER_APPROVED (lawyer signs off) →
+//   SIGNED (client e-signs in-house) → (terminal).
+// VOID is for replacement when terms change mid-case.
+//
+// We snapshot contentMd at approval time so future template edits don't
+// retroactively change what was signed.
+model RetainerAgreement {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @db.Uuid
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  caseId            String   @unique @db.Uuid
+  templateId        String?  @db.Uuid       // origin template (nullable when freeform)
+  status            RetainerStatus @default(DRAFT)
+  contentMd         String   @db.Text       // rendered Markdown — frozen on LAWYER_APPROVED
+  // Lawyer attestation
+  approvedById      String?  @db.Uuid
+  approvedBy        User?    @relation("RetainerApprovedBy", fields: [approvedById], references: [id])
+  approvedAt        DateTime?
+  approvedIp        String?
+  approvedUserAgent String?
+  // Client signature (typed name in 5.2; signature canvas comes later)
+  signedName        String?
+  signedAt          DateTime?
+  signedIp          String?
+  signedUserAgent   String?
+  signatureSvg      String?  @db.Text       // base64 PNG/SVG when canvas pad lands
+  // Lifecycle
+  voidedAt          DateTime?
+  voidedReason      String?
+  createdBy         String   @db.Uuid
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([tenantId, status])
+}
+
+enum RetainerStatus {
+  DRAFT
+  LAWYER_APPROVED
+  SIGNED
+  VOID
 }
