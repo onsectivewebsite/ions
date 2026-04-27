@@ -26,9 +26,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    # Loopback only — nothing from outside the VPS can reach Postgres.
-    ports:
-      - '127.0.0.1:5433:5432'
+    # No host port binding — only reachable from other containers on the
+    # docker network (api). Avoids clashing with any host-installed Postgres.
+    # Ops access: docker exec onsec-postgres-prod psql -U onsec onsecboad
     volumes:
       - onsec-pgdata:/var/lib/postgresql/data
       - ../postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
@@ -43,8 +43,8 @@ services:
     container_name: onsec-redis-prod
     restart: unless-stopped
     command: ['redis-server', '--appendonly', 'yes']
-    ports:
-      - '127.0.0.1:6379:6379'
+    # No host port binding — internal docker network only. CloudPanel often
+    # ships its own Redis on host :6379; this avoids the clash.
     volumes:
       - onsec-redisdata:/data
     healthcheck:
