@@ -248,10 +248,25 @@ export const leadRouter = router({
       });
       if (!lead) throw new TRPCError({ code: 'NOT_FOUND' });
       if (input.userId) {
+        // Manual assignment is permissive — accept INVITED users too
+        // (they'll see the lead the moment they accept their invite).
+        // Block only DISABLED + soft-deleted; auto round-robin still
+        // picks only ACTIVE telecallers, so this only affects manual
+        // reassign by a firm admin / branch manager.
         const u = await ctx.prisma.user.findFirst({
-          where: { id: input.userId, tenantId: ctx.tenantId, deletedAt: null, status: 'ACTIVE' },
+          where: {
+            id: input.userId,
+            tenantId: ctx.tenantId,
+            deletedAt: null,
+            status: { in: ['ACTIVE', 'INVITED'] },
+          },
         });
-        if (!u) throw new TRPCError({ code: 'BAD_REQUEST', message: 'User not in this firm' });
+        if (!u) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'That user is disabled or no longer in this firm.',
+          });
+        }
       }
       await ctx.prisma.lead.update({
         where: { id: lead.id },
@@ -277,9 +292,19 @@ export const leadRouter = router({
     .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(500), userId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const u = await ctx.prisma.user.findFirst({
-        where: { id: input.userId, tenantId: ctx.tenantId, deletedAt: null, status: 'ACTIVE' },
+        where: {
+          id: input.userId,
+          tenantId: ctx.tenantId,
+          deletedAt: null,
+          status: { in: ['ACTIVE', 'INVITED'] },
+        },
       });
-      if (!u) throw new TRPCError({ code: 'BAD_REQUEST', message: 'User not in this firm' });
+      if (!u) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'That user is disabled or no longer in this firm.',
+        });
+      }
       const result = await ctx.prisma.lead.updateMany({
         where: { id: { in: input.ids }, ...leadReadWhere(ctx) },
         data: { assignedToId: input.userId },

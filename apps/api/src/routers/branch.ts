@@ -195,7 +195,12 @@ export const branchRouter = router({
         const u = await ctx.prisma.user.findFirst({
           where: { id: input.userId, tenantId: ctx.tenantId, deletedAt: null },
         });
-        if (!u) throw new TRPCError({ code: 'BAD_REQUEST', message: 'User not in this firm' });
+        if (!u) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'That user is no longer in this firm.',
+          });
+        }
       }
       await ctx.prisma.branch.update({
         where: { id: b.id },
