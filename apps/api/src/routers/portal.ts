@@ -23,6 +23,11 @@ import {
 } from '@onsecboad/auth';
 import { loadEnv } from '@onsecboad/config';
 import { sendEmail } from '@onsecboad/email';
+import {
+  createPaymentIntent,
+  publishableKey,
+  isDryRun as stripeDryRun,
+} from '@onsecboad/stripe';
 import { router, publicProcedure, clientProcedure, firmProcedure } from '../trpc.js';
 import { logger } from '../logger.js';
 
@@ -325,6 +330,199 @@ export const portalRouter = router({
         appointments,
         intake,
         irccLog,
+      };
+    }),
+
+  // ─── Phase 7.2: Invoices + Stripe payment intents ─────────────────────
+
+  invoicesList: clientProcedure.query(async ({ ctx }) => {
+    const invoices = await ctx.prisma.caseInvoice.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        case: { clientId: ctx.clientId, deletedAt: null },
+      },
+      orderBy: [{ issueDate: 'desc' }, { number: 'desc' }],
+      include: {
+        case: { select: { id: true, caseType: true } },
+        items: { orderBy: { sortOrder: 'asc' } },
+        payments: {
+          where: { status: { not: 'VOIDED' } },
+          select: { amountCents: true, refundedCents: true },
+        },
+      },
+    });
+    return invoices.map((inv) => {
+      const paid = inv.payments.reduce(
+        (s, p) => s + p.amountCents - p.refundedCents,
+        0,
+      );
+      return {
+        id: inv.id,
+        number: inv.number,
+        status: inv.status,
+        currency: inv.currency,
+        subtotalCents: inv.subtotalCents,
+        taxCents: inv.taxCents,
+        totalCents: inv.totalCents,
+        paidCents: paid,
+        balanceCents: Math.max(0, inv.totalCents - paid),
+        issueDate: inv.issueDate,
+        dueDate: inv.dueDate,
+        sentAt: inv.sentAt,
+        paidAt: inv.paidAt,
+        notes: inv.notes,
+        case: inv.case,
+        items: inv.items.map((it) => ({
+          id: it.id,
+          description: it.description,
+          quantity: it.quantity,
+          unitPriceCents: it.unitPriceCents,
+          taxRateBp: it.taxRateBp,
+          amountCents: it.amountCents,
+        })),
+      };
+    });
+  }),
+
+  invoiceGet: clientProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const inv = await ctx.prisma.caseInvoice.findFirst({
+        where: {
+          id: input.id,
+          tenantId: ctx.tenantId,
+          case: { clientId: ctx.clientId, deletedAt: null },
+        },
+        include: {
+          case: { select: { id: true, caseType: true, status: true } },
+          items: { orderBy: { sortOrder: 'asc' } },
+          payments: {
+            where: { status: { not: 'VOIDED' } },
+            orderBy: { receivedAt: 'desc' },
+            select: {
+              id: true,
+              amountCents: true,
+              refundedCents: true,
+              method: true,
+              status: true,
+              receivedAt: true,
+            },
+          },
+        },
+      });
+      if (!inv) throw new TRPCError({ code: 'NOT_FOUND' });
+      const paid = inv.payments.reduce(
+        (s, p) => s + p.amountCents - p.refundedCents,
+        0,
+      );
+      return {
+        ...inv,
+        paidCents: paid,
+        balanceCents: Math.max(0, inv.totalCents - paid),
+      };
+    }),
+
+  paymentsHistory: clientProcedure.query(async ({ ctx }) => {
+    return ctx.prisma.casePayment.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        case: { clientId: ctx.clientId, deletedAt: null },
+        status: { not: 'VOIDED' },
+      },
+      orderBy: { receivedAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        amountCents: true,
+        refundedCents: true,
+        currency: true,
+        method: true,
+        status: true,
+        receivedAt: true,
+        invoice: { select: { id: true, number: true } },
+      },
+    });
+  }),
+
+  // Returns Stripe.js config so the portal can decide between real Elements
+  // and the dry-run fake form. Mirrors billing.config but lives on the
+  // portal (clientProcedure scope).
+  paymentsConfig: clientProcedure.query(() => ({
+    publishableKey: publishableKey(),
+    dryRun: stripeDryRun(),
+  })),
+
+  /**
+   * Create a Stripe PaymentIntent for the outstanding balance on an invoice.
+   * Server computes the amount from the live ledger so the client can't
+   * underpay by tampering with the request.
+   *
+   * Metadata carries everything the webhook needs to insert a CasePayment
+   * row idempotently (tenantId/caseId/invoiceId/clientId).
+   */
+  paymentsIntent: clientProcedure
+    .input(z.object({ invoiceId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await ctx.prisma.caseInvoice.findFirst({
+        where: {
+          id: input.invoiceId,
+          tenantId: ctx.tenantId,
+          case: { clientId: ctx.clientId, deletedAt: null },
+        },
+        include: {
+          payments: {
+            where: { status: { not: 'VOIDED' } },
+            select: { amountCents: true, refundedCents: true },
+          },
+          case: { select: { id: true, caseType: true } },
+          tenant: { select: { displayName: true } },
+        },
+      });
+      if (!inv) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (inv.status === 'VOID') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'This invoice has been voided.' });
+      }
+      if (inv.status === 'DRAFT') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Invoice is not yet ready for payment.',
+        });
+      }
+      const paid = inv.payments.reduce(
+        (s, p) => s + p.amountCents - p.refundedCents,
+        0,
+      );
+      const balance = inv.totalCents - paid;
+      if (balance <= 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invoice already paid in full.' });
+      }
+
+      const account = await ctx.prisma.clientPortalAccount.findUnique({
+        where: { id: ctx.session.sub },
+        select: { email: true },
+      });
+
+      const intent = await createPaymentIntent({
+        amountCents: balance,
+        currency: inv.currency,
+        description: `${inv.tenant.displayName} — Invoice ${inv.number}`,
+        receiptEmail: account?.email,
+        metadata: {
+          tenantId: ctx.tenantId,
+          caseId: inv.case.id,
+          invoiceId: inv.id,
+          clientId: ctx.clientId,
+          clientPortalAccountId: ctx.session.sub,
+        },
+      });
+
+      return {
+        clientSecret: intent.clientSecret,
+        paymentIntentId: intent.id,
+        publishableKey: publishableKey(),
+        dryRun: stripeDryRun(),
+        amountCents: balance,
+        currency: inv.currency,
       };
     }),
 });

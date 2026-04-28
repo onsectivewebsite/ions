@@ -48,10 +48,23 @@ export function PortalShell({
           <div className="flex items-center gap-3">
             <Link
               href="/portal/dashboard"
-              className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              className="hidden text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] sm:inline"
             >
-              {clientName}
+              Files
             </Link>
+            <Link
+              href="/portal/invoices"
+              className="hidden text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] sm:inline"
+            >
+              Invoices
+            </Link>
+            <Link
+              href="/portal/payments"
+              className="hidden text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] sm:inline"
+            >
+              Payments
+            </Link>
+            <span className="text-xs text-[var(--color-text-muted)]">{clientName}</span>
             <Button size="sm" variant="ghost" onClick={signOut}>
               <LogOut size={12} /> Sign out
             </Button>

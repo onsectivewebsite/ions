@@ -1217,7 +1217,8 @@ model CasePayment {
   stripePaymentIntentId String?      @unique
   note                  String?
   receivedAt            DateTime     @default(now())
-  recordedById          String       @db.Uuid
+  // Nullable: Stripe-webhook-driven payments have no user actor.
+  recordedById          String?      @db.Uuid
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
 

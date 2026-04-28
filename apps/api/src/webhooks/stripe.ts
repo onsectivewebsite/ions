@@ -15,6 +15,10 @@ import { verifyWebhookSignature } from '@onsecboad/stripe';
 import { uploadRemoteUrl, isDryRun as r2DryRun } from '@onsecboad/r2';
 import { prisma } from '@onsecboad/db';
 import { logger } from '../logger.js';
+import {
+  recomputeCaseFinances,
+  refreshInvoiceStatuses,
+} from '../lib/case-finances.js';
 
 type StripeEvent = { id: string; type: string; data: { object: unknown } };
 
@@ -89,6 +93,12 @@ async function dispatch(event: StripeEvent): Promise<void> {
     case 'invoice.paid':
     case 'invoice.payment_failed':
       await onInvoice(event);
+      break;
+    case 'payment_intent.succeeded':
+      await onPaymentIntentSucceeded(event);
+      break;
+    case 'payment_intent.payment_failed':
+      await onPaymentIntentFailed(event);
       break;
     default:
       logger.info({ type: event.type, id: event.id }, 'stripe webhook ignored');
@@ -202,4 +212,130 @@ async function onInvoice(event: StripeEvent): Promise<void> {
       pdfUrl: cachedPdfUrl,
     },
   });
+}
+
+// ─── Phase 7.2: Case-level payment intents ──────────────────────────────────
+
+type StripePaymentIntent = {
+  id: string;
+  status: string;
+  amount: number;
+  amount_received?: number;
+  currency: string;
+  description?: string | null;
+  metadata?: Record<string, string>;
+  last_payment_error?: { message?: string; code?: string };
+};
+
+/**
+ * payment_intent.succeeded — client paid an invoice in the portal.
+ *
+ * Idempotency: CasePayment.stripePaymentIntentId is uniquely indexed.
+ * If a row already exists for this PI we no-op (handles webhook retries
+ * and races with the synchronous "verify-after-confirm" path the UI may
+ * also exercise).
+ */
+async function onPaymentIntentSucceeded(event: StripeEvent): Promise<void> {
+  const pi = event.data.object as StripePaymentIntent;
+  const meta = pi.metadata ?? {};
+  const tenantId = meta.tenantId;
+  const caseId = meta.caseId;
+  if (!tenantId || !caseId) {
+    logger.warn({ piId: pi.id }, 'payment_intent.succeeded missing tenantId/caseId metadata');
+    return;
+  }
+
+  const existing = await prisma.casePayment.findUnique({
+    where: { stripePaymentIntentId: pi.id },
+  });
+  if (existing) {
+    logger.info({ piId: pi.id, existingId: existing.id }, 'payment intent already recorded');
+    return;
+  }
+
+  // Verify case + invoice still match the metadata. A void invoice should
+  // surface in logs but still record the payment as case credit (the money
+  // arrived; voiding the invoice doesn't make it disappear).
+  const c = await prisma.case.findFirst({
+    where: { id: caseId, tenantId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!c) {
+    logger.warn({ piId: pi.id, tenantId, caseId }, 'payment_intent.succeeded for unknown case');
+    return;
+  }
+
+  let invoiceId: string | null = null;
+  if (meta.invoiceId) {
+    const inv = await prisma.caseInvoice.findFirst({
+      where: { id: meta.invoiceId, tenantId, caseId, status: { not: 'VOID' } },
+      select: { id: true },
+    });
+    invoiceId = inv?.id ?? null;
+    if (!inv) {
+      logger.warn(
+        { piId: pi.id, invoiceId: meta.invoiceId },
+        'payment_intent.succeeded for missing/voided invoice — recording as case credit',
+      );
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const payment = await tx.casePayment.create({
+      data: {
+        tenantId,
+        caseId,
+        invoiceId,
+        amountCents: pi.amount_received ?? pi.amount,
+        currency: pi.currency.toUpperCase(),
+        method: 'stripe',
+        status: 'COMPLETED',
+        stripePaymentIntentId: pi.id,
+        note: pi.description ?? null,
+        // recordedById is null for webhook-driven rows: no human actor.
+        // The audit row below carries the PI id for forensics.
+        recordedById: null,
+      },
+    });
+    await refreshInvoiceStatuses(tx, caseId);
+    const finances = await recomputeCaseFinances(tx, caseId);
+    await tx.auditLog.create({
+      data: {
+        tenantId,
+        // SYSTEM actor — Stripe webhook, no human in the loop.
+        actorId: '00000000-0000-0000-0000-000000000000',
+        actorType: 'SYSTEM',
+        action: 'casePayment.stripeWebhook',
+        targetType: 'CasePayment',
+        targetId: payment.id,
+        payload: {
+          piId: pi.id,
+          caseId,
+          invoiceId,
+          amountCents: payment.amountCents,
+          currency: payment.currency,
+          feesCleared: finances.feesCleared,
+        },
+      },
+    });
+  });
+}
+
+/**
+ * payment_intent.payment_failed — log only. The PaymentElement on the
+ * portal will surface the error inline; we don't insert any row so the
+ * client can retry cleanly.
+ */
+async function onPaymentIntentFailed(event: StripeEvent): Promise<void> {
+  const pi = event.data.object as StripePaymentIntent;
+  logger.warn(
+    {
+      piId: pi.id,
+      tenantId: pi.metadata?.tenantId,
+      caseId: pi.metadata?.caseId,
+      invoiceId: pi.metadata?.invoiceId,
+      reason: pi.last_payment_error?.message,
+    },
+    'payment_intent.payment_failed',
+  );
 }

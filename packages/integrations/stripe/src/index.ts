@@ -249,6 +249,61 @@ export async function attachPaymentMethod(
   }
 }
 
+// ─── Case-level payment intents (Phase 7.2) ───────────────────────────────
+
+export type CreatePaymentIntentInput = {
+  amountCents: number;
+  currency: string;            // 'CAD' / 'USD' — Stripe lower-cases internally
+  description?: string;
+  customerId?: string;         // optional — client portal payments don't need one
+  receiptEmail?: string;
+  metadata: Record<string, string>;  // tenantId / caseId / invoiceId / clientId
+};
+
+export async function createPaymentIntent(
+  input: CreatePaymentIntentInput,
+): Promise<{ id: string; clientSecret: string }> {
+  if (stripeMode === 'dry-run') {
+    log('paymentIntents.create', input);
+    const piId = id('pi');
+    return { id: piId, clientSecret: `${piId}_secret_${id('').slice(4)}` };
+  }
+  const pi = await realClient!.paymentIntents.create({
+    amount: input.amountCents,
+    currency: input.currency.toLowerCase(),
+    description: input.description,
+    customer: input.customerId,
+    receipt_email: input.receiptEmail,
+    metadata: input.metadata,
+    automatic_payment_methods: { enabled: true },
+  });
+  if (!pi.client_secret) throw new Error('Stripe did not return a client_secret');
+  return { id: pi.id, clientSecret: pi.client_secret };
+}
+
+export type PaymentIntentSnapshot = {
+  id: string;
+  status: string;
+  amount: number;
+  currency: string;
+  metadata: Record<string, string>;
+};
+
+export async function retrievePaymentIntent(piId: string): Promise<PaymentIntentSnapshot> {
+  if (stripeMode === 'dry-run') {
+    log('paymentIntents.retrieve', { piId });
+    return { id: piId, status: 'succeeded', amount: 0, currency: 'cad', metadata: {} };
+  }
+  const pi = await realClient!.paymentIntents.retrieve(piId);
+  return {
+    id: pi.id,
+    status: pi.status,
+    amount: pi.amount,
+    currency: pi.currency,
+    metadata: (pi.metadata ?? {}) as Record<string, string>,
+  };
+}
+
 // ─── Webhook signature verification ───────────────────────────────────────
 
 export function verifyWebhookSignature(
