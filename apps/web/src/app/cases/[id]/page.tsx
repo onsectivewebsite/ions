@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   CheckCircle2,
-  CircleDollarSign,
   Phone,
   Save,
   User,
@@ -34,6 +33,7 @@ import { IrccLogCard } from '../../../components/cases/IrccLogCard';
 import { PortalAccessCard } from '../../../components/cases/PortalAccessCard';
 import { CaseAiCard } from '../../../components/cases/CaseAiCard';
 import { PdfFormFillCard } from '../../../components/cases/PdfFormFillCard';
+import { BillingCard } from '../../../components/cases/BillingCard';
 
 type CaseStatus =
   | 'PENDING_RETAINER'
@@ -426,8 +426,14 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                     Hard rule: fees must clear before SUBMITTED_TO_IRCC.
                   </span>
                 </div>
-                <PaymentForm caseId={id} disabled={busy} onDone={refresh} onError={setError} />
               </Card>
+
+              <BillingCard
+                caseId={id}
+                feesTarget={c.totalFeeCents ?? c.retainerFeeCents ?? null}
+                onChanged={refresh}
+                onError={setError}
+              />
 
               <Card>
                 <CardTitle>IRCC</CardTitle>
@@ -515,72 +521,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <dt className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">{label}</dt>
       <dd className="mt-0.5 text-sm">{children}</dd>
     </div>
-  );
-}
-
-function PaymentForm({
-  caseId,
-  disabled,
-  onDone,
-  onError,
-}: {
-  caseId: string;
-  disabled: boolean;
-  onDone: () => Promise<void>;
-  onError: (m: string) => void;
-}) {
-  const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState<'card' | 'cash' | 'etransfer' | 'cheque' | 'invoice'>('card');
-  const [busy, setBusy] = useState(false);
-
-  async function record(e: FormEvent): Promise<void> {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const t = getAccessToken();
-      await rpcMutation(
-        'cases.recordPayment',
-        { id: caseId, amountCents: Math.round(Number(amount) * 100), method },
-        { token: t },
-      );
-      setAmount('');
-      await onDone();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : 'Payment record failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form onSubmit={record} className="mt-4 flex items-end gap-2 border-t border-[var(--color-border-muted)] pt-3">
-      <div className="flex-1">
-        <Label htmlFor="amt">Record payment</Label>
-        <Input
-          id="amt"
-          type="number"
-          min={1}
-          step="0.01"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="500"
-        />
-      </div>
-      <select
-        className="h-10 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm"
-        value={method}
-        onChange={(e) => setMethod(e.target.value as typeof method)}
-      >
-        <option value="card">Card</option>
-        <option value="cash">Cash</option>
-        <option value="etransfer">e-Transfer</option>
-        <option value="cheque">Cheque</option>
-        <option value="invoice">Invoice</option>
-      </select>
-      <Button type="submit" disabled={busy || disabled || !amount}>
-        {busy ? <Spinner /> : <CircleDollarSign size={14} />} Record
-      </Button>
-    </form>
   );
 }
 

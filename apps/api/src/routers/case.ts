@@ -25,6 +25,10 @@ import { requirePermission } from '../lib/permissions.js';
 import { logger } from '../logger.js';
 import { publishEvent } from '../lib/realtime.js';
 import { ensureRetainerAgreement } from './retainer.js';
+import {
+  recomputeCaseFinances,
+  refreshInvoiceStatuses,
+} from '../lib/case-finances.js';
 
 const STATUS = [
   'PENDING_RETAINER',
@@ -393,12 +397,16 @@ export const caseRouter = router({
         data.irccPortalDate = input.irccPortalDate ? new Date(input.irccPortalDate) : null;
       if (input.irccDecision !== undefined) data.irccDecision = input.irccDecision;
       if (input.notes !== undefined) data.notes = input.notes;
-      // Recalculate feesCleared if the targets changed.
-      if (input.retainerFeeCents !== undefined || input.totalFeeCents !== undefined) {
-        const target = input.totalFeeCents ?? c.totalFeeCents ?? input.retainerFeeCents ?? c.retainerFeeCents;
-        if (target != null) data.feesCleared = c.amountPaidCents >= target;
-      }
-      const updated = await ctx.prisma.case.update({ where: { id: c.id }, data });
+      const updated = await ctx.prisma.$transaction(async (tx) => {
+        const u = await tx.case.update({ where: { id: c.id }, data });
+        // Targets may have moved — let the ledger helper redo feesCleared
+        // off the live payment sum so we never get stale.
+        if (input.retainerFeeCents !== undefined || input.totalFeeCents !== undefined) {
+          await recomputeCaseFinances(tx, c.id);
+          return tx.case.findUniqueOrThrow({ where: { id: c.id } });
+        }
+        return u;
+      });
       await ctx.prisma.auditLog.create({
         data: {
           tenantId: ctx.tenantId,
@@ -415,50 +423,60 @@ export const caseRouter = router({
       return updated;
     }),
 
+  // Thin wrapper over casePayment.record — kept for back-compat with the
+  // existing /cases/[id] inline payment form. New surface is the
+  // casePayment router (Phase 7.1). Remove this once UI fully migrates.
   recordPayment: requirePermission('cases', 'write')
     .input(
       z.object({
         id: z.string().uuid(),
         amountCents: z.number().int().min(1).max(1_000_000_00),
-        method: z.enum(['card', 'cash', 'etransfer', 'cheque', 'invoice']),
+        method: z.enum(['card', 'cash', 'etransfer', 'cheque', 'wire']),
         note: z.string().max(500).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const c = await ctx.prisma.case.findFirst({
         where: { id: input.id, ...caseReadWhere(ctx) },
+        select: { id: true },
       });
       if (!c) throw new TRPCError({ code: 'NOT_FOUND' });
-      const newPaid = c.amountPaidCents + input.amountCents;
-      const target = c.totalFeeCents ?? c.retainerFeeCents ?? null;
-      const cleared = target != null && newPaid >= target;
-      const updated = await ctx.prisma.case.update({
-        where: { id: c.id },
-        data: {
-          amountPaidCents: newPaid,
-          feesCleared: cleared,
-        },
-      });
-      await ctx.prisma.auditLog.create({
-        data: {
-          tenantId: ctx.tenantId,
-          actorId: ctx.session.sub,
-          actorType: 'USER',
-          action: 'case.payment',
-          targetType: 'Case',
-          targetId: c.id,
-          payload: {
+      await ctx.prisma.$transaction(async (tx) => {
+        const payment = await tx.casePayment.create({
+          data: {
+            tenantId: ctx.tenantId,
+            caseId: c.id,
             amountCents: input.amountCents,
             method: input.method,
-            note: input.note ?? null,
-            newTotalPaid: newPaid,
-            cleared,
+            status: 'COMPLETED',
+            note: input.note,
+            recordedById: ctx.session.sub,
           },
-          ip: ctx.ip,
-          userAgent: ctx.userAgent ?? null,
-        },
+        });
+        await refreshInvoiceStatuses(tx, c.id);
+        const finances = await recomputeCaseFinances(tx, c.id);
+        await tx.auditLog.create({
+          data: {
+            tenantId: ctx.tenantId,
+            actorId: ctx.session.sub,
+            actorType: 'USER',
+            action: 'casePayment.record',
+            targetType: 'CasePayment',
+            targetId: payment.id,
+            payload: {
+              caseId: c.id,
+              amountCents: input.amountCents,
+              method: input.method,
+              feesCleared: finances.feesCleared,
+            },
+            ip: ctx.ip,
+            userAgent: ctx.userAgent ?? null,
+          },
+        });
+        return finances;
       });
-      return updated;
+      // Return refreshed Case so the UI can update amountPaidCents.
+      return ctx.prisma.case.findUniqueOrThrow({ where: { id: c.id } });
     }),
 
   // Pre-flight checks the lawyer sees before the Approve button. Returns

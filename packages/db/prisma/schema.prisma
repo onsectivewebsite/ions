@@ -100,6 +100,9 @@ model Tenant {
   caseAiData                 CaseAiData[]
   pdfFormTemplates           PdfFormTemplate[]
   generatedDocuments         GeneratedDocument[]
+  // Phase 7 back-relations
+  caseInvoices               CaseInvoice[]
+  casePayments               CasePayment[]
 
   @@index([status])
 }
@@ -717,6 +720,10 @@ model Case {
   updatedAt          DateTime   @updatedAt
   deletedAt          DateTime?
 
+  // Phase 7 back-relations
+  invoices           CaseInvoice[]
+  payments           CasePayment[]
+
   @@index([tenantId, status, updatedAt])
   @@index([tenantId, branchId, status])
   @@index([tenantId, clientId])
@@ -1118,4 +1125,103 @@ model GeneratedDocument {
 
   @@index([tenantId, caseId, supersededAt])
   @@index([templateId])
+}
+
+// ─── Phase 7: Case-level invoicing + payment ledger ────────────────────────
+
+// CaseInvoice — a billable document tied to a case. Distinct from
+// SubscriptionInvoice (per-seat platform billing). Number is unique per
+// tenant; format `INV-{YYYY}-{seq}` allocated on create.
+//
+// Money model: subtotal + tax = total. amountPaid + balance is derived
+// from CasePayment ledger sum (allocated-to-invoice rows only). Updates
+// to invoice totals or payments call recomputeCaseFinances() which
+// re-syncs Case.amountPaidCents + Case.feesCleared from the ledger.
+model CaseInvoice {
+  id              String              @id @default(uuid()) @db.Uuid
+  tenantId        String              @db.Uuid
+  tenant          Tenant              @relation(fields: [tenantId], references: [id])
+  caseId          String              @db.Uuid
+  case            Case                @relation(fields: [caseId], references: [id])
+  branchId        String?             @db.Uuid          // denorm from case for scope filtering
+  number          String              // INV-2026-00042
+  status          String              @default("DRAFT") // DRAFT | SENT | PARTIAL | PAID | VOID
+  currency        String              @default("CAD")
+  // Money — recomputed from items on every change
+  subtotalCents   Int                 @default(0)
+  taxCents        Int                 @default(0)
+  totalCents      Int                 @default(0)
+  // Lifecycle
+  issueDate       DateTime            @default(now())
+  dueDate         DateTime?
+  sentAt          DateTime?
+  paidAt          DateTime?
+  voidedAt        DateTime?
+  voidReason      String?
+  notes           String?             @db.Text          // shown to client on invoice
+  createdById     String              @db.Uuid
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  items           CaseInvoiceItem[]
+  payments        CasePayment[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, caseId, status])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, status, dueDate])
+}
+
+// CaseInvoiceItem — one line on an invoice. taxRateBp is in basis points
+// (1300 = 13% HST). amountCents = round(qty * unitPrice * (1 + tax/10000)).
+// Cascade-deleted with the parent invoice (only DRAFT invoices are mutable
+// at the item level — server enforces).
+model CaseInvoiceItem {
+  id              String      @id @default(uuid()) @db.Uuid
+  tenantId        String      @db.Uuid
+  invoiceId       String      @db.Uuid
+  invoice         CaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description     String
+  quantity        Int         @default(1)
+  unitPriceCents  Int
+  taxRateBp       Int         @default(0)
+  amountCents     Int                                  // qty * unit * (1 + tax)
+  sortOrder       Int         @default(0)
+  createdAt       DateTime    @default(now())
+
+  @@index([invoiceId, sortOrder])
+}
+
+// CasePayment — a money-in event on a case. invoiceId is nullable so
+// retainer fees / unallocated deposits can land on the case without
+// being tied to a specific invoice. method covers offline channels
+// (cash, cheque, etransfer, wire) plus the manual `card` entry and
+// the Stripe-driven `stripe` flow (Phase 7.2).
+//
+// Refunds: refundedCents accumulates partial refunds; status flips to
+// REFUNDED when refundedCents == amountCents.
+model CasePayment {
+  id                    String       @id @default(uuid()) @db.Uuid
+  tenantId              String       @db.Uuid
+  tenant                Tenant       @relation(fields: [tenantId], references: [id])
+  caseId                String       @db.Uuid
+  case                  Case         @relation(fields: [caseId], references: [id])
+  invoiceId             String?      @db.Uuid
+  invoice               CaseInvoice? @relation(fields: [invoiceId], references: [id])
+  amountCents           Int
+  refundedCents         Int          @default(0)
+  currency              String       @default("CAD")
+  method                String       // card | cash | etransfer | cheque | wire | stripe
+  status                String       @default("COMPLETED") // COMPLETED | PARTIAL_REFUND | REFUNDED | VOIDED
+  reference             String?                            // cheque #, etransfer code, etc
+  stripePaymentIntentId String?      @unique
+  note                  String?
+  receivedAt            DateTime     @default(now())
+  recordedById          String       @db.Uuid
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  @@index([tenantId, caseId, receivedAt])
+  @@index([tenantId, invoiceId])
+  @@index([tenantId, status])
 }

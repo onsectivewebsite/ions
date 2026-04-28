@@ -31,6 +31,8 @@ import { documentCollectionRouter } from './routers/document-collection.js';
 import { portalRouter, clientPortalAdminRouter } from './routers/portal.js';
 import { caseAiRouter } from './routers/case-ai.js';
 import { pdfTemplateRouter } from './routers/pdf-template.js';
+import { caseInvoiceRouter } from './routers/case-invoice.js';
+import { casePaymentRouter } from './routers/case-payment.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -66,6 +68,8 @@ export const appRouter = router({
   clientPortal: clientPortalAdminRouter,
   caseAi: caseAiRouter,
   pdfTemplate: pdfTemplateRouter,
+  caseInvoice: caseInvoiceRouter,
+  casePayment: casePaymentRouter,
 });
 
 export type AppRouter = typeof appRouter;
