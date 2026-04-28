@@ -1159,6 +1159,10 @@ model CaseInvoice {
   voidedAt        DateTime?
   voidReason      String?
   notes           String?             @db.Text          // shown to client on invoice
+  // Cached rendered PDF in R2 (key only — fetched via signedUrl). Cleared
+  // when items mutate / status flips / void; re-rendered on next request.
+  pdfR2Key        String?
+  pdfRenderedAt   DateTime?
   createdById     String              @db.Uuid
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt

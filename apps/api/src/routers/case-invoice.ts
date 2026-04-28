@@ -24,6 +24,10 @@ import {
   recomputeCaseFinances,
   refreshInvoiceStatuses,
 } from '../lib/case-finances.js';
+import {
+  getInvoicePdfSignedUrl,
+  invalidateInvoicePdf,
+} from '../lib/invoice-pdf-store.js';
 
 function caseScopeWhere(ctx: {
   tenantId: string;
@@ -292,6 +296,8 @@ export const caseInvoiceRouter = router({
           },
           include: { items: { orderBy: { sortOrder: 'asc' } }, payments: true },
         });
+        // Stash + R2-cached PDF is stale.
+        await invalidateInvoicePdf(tx, inv.id);
         await tx.auditLog.create({
           data: {
             tenantId: ctx.tenantId,
@@ -372,6 +378,7 @@ export const caseInvoiceRouter = router({
           where: { invoiceId: inv.id },
           data: { invoiceId: null },
         });
+        await invalidateInvoicePdf(tx, inv.id);
         await refreshInvoiceStatuses(tx, inv.caseId);
         await recomputeCaseFinances(tx, inv.caseId);
         await tx.auditLog.create({
@@ -425,5 +432,23 @@ export const caseInvoiceRouter = router({
         });
       });
       return { ok: true };
+    }),
+
+  // 1-hour signed URL for the rendered PDF. Lazy-renders on first
+  // request, then re-uses the R2 object until something invalidates
+  // the cache.
+  pdfUrl: requirePermission('invoices', 'read')
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await ctx.prisma.caseInvoice.findFirst({
+        where: { id: input.id, ...caseScopeWhere(ctx) },
+        select: { id: true, status: true },
+      });
+      if (!inv) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (inv.status === 'VOID') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot download a voided invoice.' });
+      }
+      const url = await getInvoicePdfSignedUrl(ctx.prisma, inv.id);
+      return { url };
     }),
 });

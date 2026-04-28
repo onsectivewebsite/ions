@@ -2,7 +2,7 @@
 import { use, useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, CreditCard, Lock } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, CreditCard, Download, Lock } from 'lucide-react';
 import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import {
   Elements,
@@ -136,6 +136,20 @@ export default function PortalInvoiceDetailPage({
     }
   }
 
+  async function downloadPdf(): Promise<void> {
+    try {
+      const token = getPortalToken();
+      const r = await rpcMutation<{ url: string }>(
+        'portal.invoicePdfUrl',
+        { id },
+        { token },
+      );
+      window.open(r.url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate PDF');
+    }
+  }
+
   if (!me || !inv) {
     return (
       <main className="mx-auto max-w-3xl space-y-4 p-8">
@@ -155,12 +169,19 @@ export default function PortalInvoiceDetailPage({
     <ThemeProvider branding={branding}>
       <PortalShell firmName={me.tenant.displayName} clientName={fullName}>
         <div className="space-y-4">
-          <Link
-            href="/portal/invoices"
-            className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-          >
-            <ArrowLeft size={12} /> All invoices
-          </Link>
+          <div className="flex items-center justify-between">
+            <Link
+              href="/portal/invoices"
+              className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            >
+              <ArrowLeft size={12} /> All invoices
+            </Link>
+            {inv.status !== 'VOID' ? (
+              <Button size="sm" variant="ghost" onClick={() => void downloadPdf()}>
+                <Download size={12} /> Download PDF
+              </Button>
+            ) : null}
+          </div>
 
           <div className="flex items-center justify-between">
             <div>

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { CircleDollarSign, FileText, Plus, RotateCcw, Send, Trash2, X } from 'lucide-react';
+import { CircleDollarSign, Download, FileText, Plus, RotateCcw, Send, Trash2, X } from 'lucide-react';
 import { Badge, Button, Card, CardTitle, Input, Label, Spinner } from '@onsecboad/ui';
 import { rpcMutation, rpcQuery } from '../../lib/api';
 import { getAccessToken } from '../../lib/session';
@@ -304,6 +304,20 @@ function InvoiceRow({
     }
   }
 
+  async function downloadPdf(): Promise<void> {
+    try {
+      const token = getAccessToken();
+      const r = await rpcMutation<{ url: string }>(
+        'caseInvoice.pdfUrl',
+        { id: inv.id },
+        { token },
+      );
+      window.open(r.url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'PDF download failed');
+    }
+  }
+
   return (
     <li className="rounded-[var(--radius-md)] border border-[var(--color-border-muted)] p-3">
       <div className="flex items-center justify-between gap-3">
@@ -344,6 +358,11 @@ function InvoiceRow({
           {inv.status !== 'VOID' && inv.status !== 'PAID' && inv.status !== 'DRAFT' ? (
             <Button size="sm" variant="secondary" onClick={onRecordPayment}>
               <CircleDollarSign size={12} /> Record payment
+            </Button>
+          ) : null}
+          {inv.status !== 'VOID' ? (
+            <Button size="sm" variant="ghost" onClick={() => void downloadPdf()}>
+              <Download size={12} /> PDF
             </Button>
           ) : null}
           {inv.status !== 'VOID' && inv.status !== 'DRAFT' ? (

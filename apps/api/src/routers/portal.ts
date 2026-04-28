@@ -28,6 +28,7 @@ import {
   publishableKey,
   isDryRun as stripeDryRun,
 } from '@onsecboad/stripe';
+import { getInvoicePdfSignedUrl } from '../lib/invoice-pdf-store.js';
 import { router, publicProcedure, clientProcedure, firmProcedure } from '../trpc.js';
 import { logger } from '../logger.js';
 
@@ -524,6 +525,27 @@ export const portalRouter = router({
         amountCents: balance,
         currency: inv.currency,
       };
+    }),
+
+  // 1-hour signed URL for the rendered invoice PDF. Scope-checked the
+  // same way invoiceGet is — only invoices on this client's own cases.
+  invoicePdfUrl: clientProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await ctx.prisma.caseInvoice.findFirst({
+        where: {
+          id: input.id,
+          tenantId: ctx.tenantId,
+          case: { clientId: ctx.clientId, deletedAt: null },
+        },
+        select: { id: true, status: true },
+      });
+      if (!inv) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (inv.status === 'VOID') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'This invoice has been voided.' });
+      }
+      const url = await getInvoicePdfSignedUrl(ctx.prisma, inv.id);
+      return { url };
     }),
 });
 
