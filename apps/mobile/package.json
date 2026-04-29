@@ -1,0 +1,38 @@
+{
+  "name": "@onsecboad/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "APP_VARIANT=$APP_VARIANT expo start --clear",
+    "start:staff": "APP_VARIANT=staff expo start --clear",
+    "start:client": "APP_VARIANT=client expo start --clear",
+    "start:tv": "APP_VARIANT=tv expo start --clear",
+    "ios": "APP_VARIANT=$APP_VARIANT expo run:ios",
+    "android": "APP_VARIANT=$APP_VARIANT expo run:android",
+    "build:staff:preview": "APP_VARIANT=staff eas build --profile preview --platform all",
+    "build:client:preview": "APP_VARIANT=client eas build --profile preview --platform all",
+    "build:tv:preview": "APP_VARIANT=tv eas build --profile preview --platform all"
+  },
+  "dependencies": {
+    "@onsecboad/config": "workspace:*",
+    "expo": "~51.0.39",
+    "expo-constants": "~16.0.2",
+    "expo-linking": "~6.3.1",
+    "expo-router": "~3.5.24",
+    "expo-secure-store": "~13.0.2",
+    "expo-status-bar": "~1.12.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-native": "0.74.5",
+    "react-native-gesture-handler": "~2.16.2",
+    "react-native-reanimated": "~3.10.1",
+    "react-native-safe-area-context": "4.10.5",
+    "react-native-screens": "3.31.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.7",
+    "@types/react": "~18.2.79",
+    "typescript": "~5.5.4"
+  }
+}

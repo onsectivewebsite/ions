@@ -1,0 +1,9 @@
+node_modules/
+.expo/
+dist/
+*.tsbuildinfo
+ios/
+android/
+.env*.local
+.idea/
+*.log

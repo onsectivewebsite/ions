@@ -1,0 +1,56 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "staff"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "staff"
+      },
+      "ios": {
+        "simulator": false
+      }
+    },
+    "production": {
+      "env": {
+        "APP_VARIANT": "staff"
+      }
+    },
+    "preview-client": {
+      "extends": "preview",
+      "env": {
+        "APP_VARIANT": "client"
+      }
+    },
+    "production-client": {
+      "extends": "production",
+      "env": {
+        "APP_VARIANT": "client"
+      }
+    },
+    "preview-tv": {
+      "extends": "preview",
+      "env": {
+        "APP_VARIANT": "tv"
+      }
+    },
+    "production-tv": {
+      "extends": "production",
+      "env": {
+        "APP_VARIANT": "tv"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
