@@ -64,6 +64,12 @@ export function PortalShell({
             >
               Payments
             </Link>
+            <Link
+              href="/portal/messages"
+              className="hidden text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] sm:inline"
+            >
+              Messages
+            </Link>
             <span className="text-xs text-[var(--color-text-muted)]">{clientName}</span>
             <Button size="sm" variant="ghost" onClick={signOut}>
               <LogOut size={12} /> Sign out

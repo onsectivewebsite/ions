@@ -29,6 +29,7 @@ import {
   isDryRun as stripeDryRun,
 } from '@onsecboad/stripe';
 import { getInvoicePdfSignedUrl } from '../lib/invoice-pdf-store.js';
+import { publishEvent } from '../lib/realtime.js';
 import { router, publicProcedure, clientProcedure, firmProcedure } from '../trpc.js';
 import { logger } from '../logger.js';
 
@@ -547,6 +548,110 @@ export const portalRouter = router({
       const url = await getInvoicePdfSignedUrl(ctx.prisma, inv.id);
       return { url };
     }),
+
+  // ─── Phase 7.4: Secure messaging ──────────────────────────────────────
+
+  messagesList: clientProcedure
+    .input(z.object({ caseId: z.string().uuid().optional(), limit: z.number().int().min(1).max(500).default(200) }).optional())
+    .query(async ({ ctx, input }) => {
+      const items = await ctx.prisma.message.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          clientId: ctx.clientId,
+          ...(input?.caseId ? { caseId: input.caseId } : {}),
+        },
+        orderBy: { createdAt: 'asc' },
+        take: input?.limit ?? 200,
+        select: {
+          id: true,
+          sender: true,
+          body: true,
+          attachments: true,
+          readByClient: true,
+          readByStaff: true,
+          createdAt: true,
+          caseId: true,
+        },
+      });
+      return items;
+    }),
+
+  messagesSend: clientProcedure
+    .input(
+      z.object({
+        body: z.string().min(1).max(5000),
+        caseId: z.string().uuid().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // If caseId given, ensure it belongs to this client (defence in depth
+      // — UI doesn't expose other clients' cases, but never trust the wire).
+      if (input.caseId) {
+        const c = await ctx.prisma.case.findFirst({
+          where: {
+            id: input.caseId,
+            tenantId: ctx.tenantId,
+            clientId: ctx.clientId,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        if (!c) throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+      const msg = await ctx.prisma.message.create({
+        data: {
+          tenantId: ctx.tenantId,
+          clientId: ctx.clientId,
+          caseId: input.caseId ?? null,
+          sender: 'CLIENT',
+          body: input.body,
+          // Client sees their own outbound message immediately as "read".
+          readByClient: new Date(),
+        },
+      });
+      await publishEvent(
+        { kind: 'tenant', tenantId: ctx.tenantId },
+        {
+          type: 'message.new',
+          messageId: msg.id,
+          clientId: ctx.clientId,
+          caseId: input.caseId ?? null,
+          sender: 'CLIENT',
+          bodyPreview: msg.body.length > 80 ? `${msg.body.slice(0, 79)}…` : msg.body,
+        },
+      );
+      return msg;
+    }),
+
+  // Mark every unread STAFF message as read by client. Called when the
+  // portal /messages page loads + on tab focus.
+  messagesMarkRead: clientProcedure
+    .input(z.object({ caseId: z.string().uuid().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const r = await ctx.prisma.message.updateMany({
+        where: {
+          tenantId: ctx.tenantId,
+          clientId: ctx.clientId,
+          ...(input?.caseId ? { caseId: input.caseId } : {}),
+          sender: 'STAFF',
+          readByClient: null,
+        },
+        data: { readByClient: new Date() },
+      });
+      return { marked: r.count };
+    }),
+
+  messagesUnreadCount: clientProcedure.query(async ({ ctx }) => {
+    const count = await ctx.prisma.message.count({
+      where: {
+        tenantId: ctx.tenantId,
+        clientId: ctx.clientId,
+        sender: 'STAFF',
+        readByClient: null,
+      },
+    });
+    return { count };
+  }),
 });
 
 // ─── Firm-scoped: invite-to-portal mutation (lives here for cohesion) ────

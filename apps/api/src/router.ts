@@ -33,6 +33,7 @@ import { caseAiRouter } from './routers/case-ai.js';
 import { pdfTemplateRouter } from './routers/pdf-template.js';
 import { caseInvoiceRouter } from './routers/case-invoice.js';
 import { casePaymentRouter } from './routers/case-payment.js';
+import { messageRouter } from './routers/message.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -70,6 +71,7 @@ export const appRouter = router({
   pdfTemplate: pdfTemplateRouter,
   caseInvoice: caseInvoiceRouter,
   casePayment: casePaymentRouter,
+  message: messageRouter,
 });
 
 export type AppRouter = typeof appRouter;

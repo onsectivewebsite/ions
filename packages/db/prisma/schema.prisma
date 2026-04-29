@@ -103,6 +103,7 @@ model Tenant {
   // Phase 7 back-relations
   caseInvoices               CaseInvoice[]
   casePayments               CasePayment[]
+  messages                   Message[]
 
   @@index([status])
 }
@@ -544,6 +545,7 @@ model Client {
   appointments      Appointment[]
   cases             Case[]
   portalAccount     ClientPortalAccount?
+  messages          Message[]
 
   // One canonical client row per (firm, phone). Re-arrival lookups hit this index.
   @@unique([tenantId, phone])
@@ -723,6 +725,7 @@ model Case {
   // Phase 7 back-relations
   invoices           CaseInvoice[]
   payments           CasePayment[]
+  messages           Message[]
 
   @@index([tenantId, status, updatedAt])
   @@index([tenantId, branchId, status])
@@ -1229,4 +1232,43 @@ model CasePayment {
   @@index([tenantId, caseId, receivedAt])
   @@index([tenantId, invoiceId])
   @@index([tenantId, status])
+}
+
+// ─── Phase 7.4: Secure messaging (firm ↔ client) ───────────────────────────
+
+// Message — one row per chat-style entry between a client and the firm.
+// Per-client thread (cross-case) by default; caseId is optional and lets
+// staff tag a message to a specific case for later filtering. SYSTEM
+// sender is reserved for events like "case status changed" / "documents
+// requested" — not used in 7.4 but pre-allocated.
+//
+// readByClient / readByStaff are receipt timestamps used to compute
+// per-side unread counters.
+model Message {
+  id           String        @id @default(uuid()) @db.Uuid
+  tenantId     String        @db.Uuid
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  clientId     String        @db.Uuid
+  client       Client        @relation(fields: [clientId], references: [id])
+  caseId       String?       @db.Uuid
+  case         Case?         @relation(fields: [caseId], references: [id])
+  sender       MessageSender
+  // Only set when sender = STAFF; nullable for CLIENT and SYSTEM rows.
+  senderUserId String?       @db.Uuid
+  body         String        @db.Text
+  // Reserved for Phase 7.5 (portal document upload) — JSON array of refs.
+  attachments  Json?
+  readByClient DateTime?
+  readByStaff  DateTime?
+  createdAt    DateTime      @default(now())
+
+  @@index([tenantId, clientId, createdAt])
+  @@index([tenantId, caseId, createdAt])
+  @@index([tenantId, sender, readByStaff]) // staff inbox unread query
+}
+
+enum MessageSender {
+  CLIENT
+  STAFF
+  SYSTEM
 }

@@ -50,6 +50,7 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       retainer: { read: 'branch', write: 'branch', delete: false },
       ai: { read: 'branch', write: 'branch', delete: false },
       invoices: { read: 'branch', write: 'branch', delete: false },
+      messages: { read: 'branch', write: 'branch', delete: false },
       users: { read: 'branch', write: 'branch', delete: 'branch' },
       branches: { read: 'branch', write: false, delete: false },
       audit: { read: 'branch', write: false, delete: false },
@@ -71,6 +72,7 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       retainer: { read: 'assigned', write: 'assigned', delete: false },
       ai: { read: 'assigned', write: 'assigned', delete: false },
       invoices: { read: 'assigned', write: 'assigned', delete: false },
+      messages: { read: 'assigned', write: 'assigned', delete: false },
     },
   },
   {
@@ -86,6 +88,7 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       retainer: { read: 'assigned', write: 'assigned', delete: false },
       ai: { read: 'assigned', write: 'assigned', delete: false },
       invoices: { read: 'assigned', write: 'assigned', delete: false },
+      messages: { read: 'assigned', write: 'assigned', delete: false },
     },
   },
   {
@@ -96,6 +99,7 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       documents: { read: 'case', write: 'case', delete: false },
       ai: { read: 'case', write: 'case', delete: false },
       invoices: { read: 'case', write: 'case', delete: false },
+      messages: { read: 'case', write: 'case', delete: false },
     },
   },
   {
@@ -106,6 +110,7 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       documents: { read: 'case', write: 'case', delete: false },
       ai: { read: 'case', write: 'case', delete: false },
       invoices: { read: 'case', write: 'case', delete: false },
+      messages: { read: 'case', write: 'case', delete: false },
     },
   },
   {

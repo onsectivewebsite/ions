@@ -34,6 +34,7 @@ import { PortalAccessCard } from '../../../components/cases/PortalAccessCard';
 import { CaseAiCard } from '../../../components/cases/CaseAiCard';
 import { PdfFormFillCard } from '../../../components/cases/PdfFormFillCard';
 import { BillingCard } from '../../../components/cases/BillingCard';
+import { MessagesCard } from '../../../components/cases/MessagesCard';
 
 type CaseStatus =
   | 'PENDING_RETAINER'
@@ -434,6 +435,8 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                 onChanged={refresh}
                 onError={setError}
               />
+
+              <MessagesCard clientId={c.client.id} caseId={id} onError={setError} />
 
               <Card>
                 <CardTitle>IRCC</CardTitle>

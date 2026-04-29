@@ -27,6 +27,14 @@ export type RealtimeEvent =
   | { type: 'appointment.created'; appointmentId: string; scheduledAt: string; providerId: string }
   | { type: 'appointment.outcome'; appointmentId: string; outcome: string; leadId: string | null }
   | { type: 'case.status'; caseId: string; status: string }
+  | {
+      type: 'message.new';
+      messageId: string;
+      clientId: string;
+      caseId: string | null;
+      sender: 'CLIENT' | 'STAFF' | 'SYSTEM';
+      bodyPreview: string;
+    }
   | { type: 'ping'; t: number };
 
 export type EventTarget =
