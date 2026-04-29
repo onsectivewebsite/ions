@@ -107,6 +107,7 @@ model Tenant {
   // Phase 8 back-relations
   aiSettings                 AiSettings?
   aiUsage                    AiUsage[]
+  aiAgentRuns                AiAgentRun[]
 
   @@index([status])
 }
@@ -729,6 +730,8 @@ model Case {
   invoices           CaseInvoice[]
   payments           CasePayment[]
   messages           Message[]
+  // Phase 8.3 back-relations
+  aiAgentRuns        AiAgentRun[]
 
   @@index([tenantId, status, updatedAt])
   @@index([tenantId, branchId, status])
@@ -1334,4 +1337,34 @@ model AiUsage {
   @@index([tenantId, createdAt])
   @@index([tenantId, feature, createdAt])
   @@index([tenantId, refType, refId])
+}
+
+// AiAgentRun — one row per autonomous-agent invocation. The 8.3 agent
+// only does `missing_docs`; the column is wide so 8.x can layer in
+// followup / next_action / etc without a migration.
+//
+// `steps` is a chronological array: [{ tool, input, output, ts }]. The
+// 8.3 agent has exactly one step (compose-then-post-message) but the
+// shape supports multi-step agents we'll build later.
+//
+// `kickedOffById` is null when the cron fires; non-null when staff hits
+// "Run agent now".
+model AiAgentRun {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @db.Uuid
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  caseId        String   @db.Uuid
+  case          Case     @relation(fields: [caseId], references: [id])
+  mode          String                             // 'missing_docs' (8.3)
+  status        String                             // RUNNING | DONE | ERROR | SKIPPED
+  steps         Json     @default("[]")            // [{ tool, input, output, ts }]
+  result        Json?
+  costCents     Int      @default(0)
+  skipReason    String?                            // populated when status=SKIPPED
+  kickedOffById String?  @db.Uuid                  // null = cron, otherwise staff user
+  startedAt     DateTime @default(now())
+  endedAt       DateTime?
+
+  @@index([tenantId, caseId, startedAt])
+  @@index([tenantId, status, startedAt])
 }

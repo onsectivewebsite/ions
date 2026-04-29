@@ -65,6 +65,10 @@ const envSchema = z.object({
     .pipe(z.boolean())
     .default('false'),
   CRON_SEAT_RECONCILE: z.string().default('0 2 * * *'), // daily at 02:00 UTC
+  // Phase 8.3 — daily missing-docs agent scan. Defaults to 14:00 UTC
+  // (early morning North America) which works for typical Canadian
+  // immigration firm hours.
+  CRON_AI_AGENT_TICK: z.string().default('0 14 * * *'),
 
   ANTHROPIC_API_KEY: z.string().optional(),
   // Default model for Phase 6 AI extraction. Override per-tenant if a firm

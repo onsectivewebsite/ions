@@ -17,6 +17,7 @@ type Message = {
   caseId: string | null;
   readByClient: string | null;
   readByStaff: string | null;
+  attachments?: { source?: string; mode?: string } | null;
 };
 
 export function MessagesCard({
@@ -159,6 +160,7 @@ function Bubble({ m }: { m: Message }) {
           }`}
         >
           {new Date(m.createdAt).toLocaleString()}
+          {m.attachments?.source === 'agent' ? ' · 🤖 AI agent' : ''}
           {isStaff
             ? m.readByClient
               ? ' · seen'

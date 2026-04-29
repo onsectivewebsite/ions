@@ -617,3 +617,135 @@ export async function classifyDocument(input: ClassifyInput): Promise<ClassifyRe
   if (isDryRun) return classifyDryRun(input);
   return classifyReal(input);
 }
+
+// ─── Phase 8.3: Missing-docs agent compose ──────────────────────────────
+//
+// Drafts a polite, friendly chat message to a client whose required
+// uploads are still missing on a case. Tone: helpful firm-of-record, NOT
+// a robot or a debt collector. Picks Haiku by default.
+//
+// The agent's tool surface in 8.3 is exactly one tool: post-message. The
+// model isn't asked to make tool decisions — it just writes the body. Phase
+// 8+ can extend this into a multi-step agent if the firm asks for it.
+
+export type AgentMissingItem = { key: string; label: string };
+
+export type AgentComposeInput = {
+  firmName: string;
+  clientFirstName: string;
+  caseType: string;
+  missingItems: AgentMissingItem[];
+  daysSinceSent: number;
+  /** ISO 639-1 ('en' | 'fr' | 'pa' | 'hi' | …). Defaults to 'en'. */
+  language?: string;
+  /** Optional override; defaults to Haiku 4.5. */
+  model?: string;
+};
+
+export type AgentComposeResult = {
+  body: string;
+  mode: AiMode;
+  usage: AiUsageMetrics;
+};
+
+const AGENT_SYSTEM_PROMPT = `You draft short, friendly chat messages
+from a Canadian immigration law firm to one of their clients. The
+firm is reminding the client that some required documents for their
+file are still missing.
+
+Hard rules:
+1. Output ONLY the message body — no greeting headers, no signatures
+   (the firm's portal will surface the firm name automatically), no
+   markdown formatting.
+2. 60 to 200 words. Plain text only.
+3. Warm, concrete tone. Don't apologise for following up; don't guilt
+   or pressure. Acknowledge the client's effort.
+4. Name the missing items by their plain-English label. List them as
+   bullets (use the • character on its own line).
+5. Tell the client where to upload (their client portal). Don't include
+   any URLs — the portal renders this message inline.
+6. If the language is not English, write the entire message in that
+   language. ISO 639-1 codes: en (English), fr (French), pa (Punjabi),
+   hi (Hindi), zh (Chinese), es (Spanish).
+7. Sign off with "— <firmName>" on its own line.`;
+
+function buildAgentPrompt(input: AgentComposeInput): string {
+  const lines: string[] = [];
+  lines.push(`Firm: ${input.firmName}`);
+  lines.push(`Client first name: ${input.clientFirstName}`);
+  lines.push(`Case type: ${input.caseType.replace('_', ' ')}`);
+  lines.push(`Days since collection link sent: ${input.daysSinceSent}`);
+  lines.push(`Language: ${input.language ?? 'en'}`);
+  lines.push('');
+  lines.push('Missing items:');
+  for (const m of input.missingItems) lines.push(`  - ${m.label}`);
+  return lines.join('\n');
+}
+
+function composeAgentDryRun(input: AgentComposeInput): AgentComposeResult {
+  const items = input.missingItems.map((m) => `• ${m.label}`).join('\n');
+  const body = `Hi ${input.clientFirstName || 'there'},
+
+I hope you're doing well. We're working on your ${input.caseType.replace('_', ' ')} file and noticed a few items are still outstanding. Whenever you have a moment, could you upload the following on your client portal?
+
+${items}
+
+Once these are in, we can get your file moving toward submission. Let us know if anything is unclear or hard to get a hold of — happy to help.
+
+— ${input.firmName}`;
+  const model = input.model ?? 'claude-haiku-4-5';
+  const inputTokens = 400 + input.missingItems.length * 30;
+  const outputTokens = 180;
+  return {
+    body,
+    mode: 'dry-run',
+    usage: {
+      inputTokens,
+      cachedInputTokens: 0,
+      outputTokens,
+      costCents: computeCostCents({ model, inputTokens, cachedInputTokens: 0, outputTokens }),
+      model,
+    },
+  };
+}
+
+async function composeAgentReal(input: AgentComposeInput): Promise<AgentComposeResult> {
+  const model = input.model ?? 'claude-haiku-4-5';
+  const res = await client!.messages.create({
+    model,
+    max_tokens: 600,
+    system: AGENT_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: buildAgentPrompt(input) }],
+  });
+  const body = res.content
+    .filter((c) => c.type === 'text')
+    .map((c) => (c as { text: string }).text)
+    .join('\n')
+    .trim();
+  const u = (res.usage ?? {}) as {
+    input_tokens?: number;
+    cache_read_input_tokens?: number;
+    output_tokens?: number;
+  };
+  const inputTokens = u.input_tokens ?? 0;
+  const cachedInputTokens = u.cache_read_input_tokens ?? 0;
+  const outputTokens = u.output_tokens ?? 0;
+  return {
+    body,
+    mode: 'real',
+    usage: {
+      inputTokens,
+      cachedInputTokens,
+      outputTokens,
+      costCents: computeCostCents({ model, inputTokens, cachedInputTokens, outputTokens }),
+      model,
+    },
+  };
+}
+
+export async function composeMissingDocsMessage(
+  input: AgentComposeInput,
+): Promise<AgentComposeResult> {
+  if (isDryRun) return composeAgentDryRun(input);
+  return composeAgentReal(input);
+}

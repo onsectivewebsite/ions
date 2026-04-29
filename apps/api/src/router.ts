@@ -36,6 +36,7 @@ import { casePaymentRouter } from './routers/case-payment.js';
 import { messageRouter } from './routers/message.js';
 import { aiSettingsRouter } from './routers/ai-settings.js';
 import { aiUsageRouter } from './routers/ai-usage.js';
+import { aiAgentRouter } from './routers/ai-agent.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -76,6 +77,7 @@ export const appRouter = router({
   message: messageRouter,
   aiSettings: aiSettingsRouter,
   aiUsage: aiUsageRouter,
+  aiAgent: aiAgentRouter,
 });
 
 export type AppRouter = typeof appRouter;
