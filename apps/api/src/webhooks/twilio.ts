@@ -153,6 +153,23 @@ export async function twilioRecordingStatusHandler(req: Request, res: Response):
         recordingUrl,
       },
     });
+
+    // Phase 8.4 — fire summarize asynchronously when the recording is
+    // finalized (RecordingStatus=completed). Twilio's TranscriptionText
+    // is sometimes provided alongside the recording webhook; pass it
+    // through so the AI client can short-circuit STT.
+    const recordingStatus = params.RecordingStatus ?? null;
+    const transcriptionText = params.TranscriptionText ?? null;
+    if (recordingStatus === 'completed') {
+      const matched = await prisma.callLog.findFirst({
+        where: { twilioSid: callSid },
+        select: { id: true },
+      });
+      if (matched) {
+        const { summarizeCallAsync } = await import('../lib/ai-summarize.js');
+        void summarizeCallAsync(prisma, matched.id, transcriptionText);
+      }
+    }
   }
   await recordWebhook('twilio', 'recording.status', recordingSid, params);
   await markProcessed(recordingSid);

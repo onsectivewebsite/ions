@@ -2,16 +2,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Phone, PhoneIncoming, PhoneOutgoing } from 'lucide-react';
+import { Phone, PhoneIncoming, PhoneOutgoing, Sparkles } from 'lucide-react';
 import {
   Badge,
   Button,
   Card,
   Skeleton,
+  Spinner,
   ThemeProvider,
   type Branding,
 } from '@onsecboad/ui';
-import { rpcQuery } from '../../lib/api';
+import { rpcMutation, rpcQuery } from '../../lib/api';
 import { getAccessToken } from '../../lib/session';
 import { AppShell, type ShellUser } from '../../components/AppShell';
 
@@ -25,6 +26,9 @@ type CallRow = {
   disposition: string | null;
   startedAt: string;
   endedAt: string | null;
+  aiSummary: string | null;
+  aiSummarizedAt: string | null;
+  aiSummaryMode: 'real' | 'dry-run' | null;
   lead: { id: string; firstName: string | null; lastName: string | null; phone: string | null } | null;
   agent: { id: string; name: string; email: string } | null;
 };
@@ -89,7 +93,7 @@ export default function CallsPage() {
     const token = getAccessToken();
     if (!token) return;
     setResp(null);
-    rpcQuery<ListResp>('call.list', { page, mine: mineOnly || undefined }, { token })
+    rpcQuery<ListResp>('calls.list', { page, mine: mineOnly || undefined }, { token })
       .then(setResp)
       .catch(() => setResp({ items: [], total: 0, page: 1, pageSize: 50 }));
   }, [me, page, mineOnly]);
@@ -160,20 +164,21 @@ export default function CallsPage() {
                     <th className="py-2 pr-4">Duration</th>
                     <th className="py-2 pr-4">Disposition</th>
                     <th className="py-2 pr-4">Started</th>
+                    <th className="py-2 pr-4">AI</th>
                   </tr>
                 </thead>
                 <tbody>
                   {resp === null ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <tr key={i} className="border-b border-[var(--color-border-muted)]">
-                        <td colSpan={7} className="py-3">
+                        <td colSpan={8} className="py-3">
                           <Skeleton className="h-6" />
                         </td>
                       </tr>
                     ))
                   ) : resp.items.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center">
+                      <td colSpan={8} className="py-12 text-center">
                         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--radius-pill)] bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]">
                           <Phone size={20} />
                         </div>
@@ -185,44 +190,19 @@ export default function CallsPage() {
                     </tr>
                   ) : (
                     resp.items.map((c) => (
-                      <tr key={c.id} className="border-b border-[var(--color-border-muted)]">
-                        <td className="py-3 pr-4">
-                          {c.lead ? (
-                            <Link href={`/leads/${c.lead.id}`} className="font-medium hover:underline">
-                              {leadName(c.lead)}
-                            </Link>
-                          ) : (
-                            <span>{c.toNumber ?? c.fromNumber ?? '—'}</span>
-                          )}
-                          <div className="text-[10px] text-[var(--color-text-muted)]">
-                            {c.direction === 'outbound' ? c.toNumber : c.fromNumber}
-                          </div>
-                        </td>
-                        <td className="py-3 pr-4 text-[var(--color-text-muted)]">
-                          {c.agent?.name ?? 'System'}
-                        </td>
-                        <td className="py-3 pr-4">
-                          {c.direction === 'outbound' ? (
-                            <span className="inline-flex items-center gap-1 text-xs">
-                              <PhoneOutgoing size={11} /> Outbound
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs">
-                              <PhoneIncoming size={11} /> Inbound
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 pr-4">
-                          <Badge tone={STATUS_TONE[c.status] ?? 'neutral'}>{c.status}</Badge>
-                        </td>
-                        <td className="py-3 pr-4 font-mono text-xs">{formatDuration(c.durationSec)}</td>
-                        <td className="py-3 pr-4 text-xs text-[var(--color-text-muted)]">
-                          {c.disposition ?? '—'}
-                        </td>
-                        <td className="py-3 pr-4 text-xs text-[var(--color-text-muted)]">
-                          {new Date(c.startedAt).toLocaleString()}
-                        </td>
-                      </tr>
+                      <CallRowView
+                        key={c.id}
+                        c={c}
+                        onChanged={() => {
+                          const token = getAccessToken();
+                          if (!token) return;
+                          rpcQuery<ListResp>(
+                            'calls.list',
+                            { page, mine: mineOnly || undefined },
+                            { token },
+                          ).then(setResp);
+                        }}
+                      />
                     ))
                   )}
                 </tbody>
@@ -252,5 +232,118 @@ export default function CallsPage() {
         </div>
       </AppShell>
     </ThemeProvider>
+  );
+}
+
+function CallRowView({ c, onChanged }: { c: CallRow; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  async function resummarize(): Promise<void> {
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      await rpcMutation('calls.summarize', { id: c.id }, { token });
+      onChanged();
+    } catch {
+      /* swallow */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const summary = c.aiSummary ?? null;
+  const summaryPreview = summary
+    ? summary.length > 90
+      ? `${summary.slice(0, 89)}…`
+      : summary
+    : null;
+
+  return (
+    <>
+      <tr className="border-b border-[var(--color-border-muted)]">
+        <td className="py-3 pr-4">
+          {c.lead ? (
+            <Link href={`/leads/${c.lead.id}`} className="font-medium hover:underline">
+              {leadName(c.lead)}
+            </Link>
+          ) : (
+            <span>{c.toNumber ?? c.fromNumber ?? '—'}</span>
+          )}
+          <div className="text-[10px] text-[var(--color-text-muted)]">
+            {c.direction === 'outbound' ? c.toNumber : c.fromNumber}
+          </div>
+        </td>
+        <td className="py-3 pr-4 text-[var(--color-text-muted)]">
+          {c.agent?.name ?? 'System'}
+        </td>
+        <td className="py-3 pr-4">
+          {c.direction === 'outbound' ? (
+            <span className="inline-flex items-center gap-1 text-xs">
+              <PhoneOutgoing size={11} /> Outbound
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs">
+              <PhoneIncoming size={11} /> Inbound
+            </span>
+          )}
+        </td>
+        <td className="py-3 pr-4">
+          <Badge tone={STATUS_TONE[c.status] ?? 'neutral'}>{c.status}</Badge>
+        </td>
+        <td className="py-3 pr-4 font-mono text-xs">{formatDuration(c.durationSec)}</td>
+        <td className="py-3 pr-4 text-xs text-[var(--color-text-muted)]">
+          {c.disposition ?? '—'}
+        </td>
+        <td className="py-3 pr-4 text-xs text-[var(--color-text-muted)]">
+          {new Date(c.startedAt).toLocaleString()}
+        </td>
+        <td className="py-3 pr-4">
+          {summaryPreview ? (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="text-left text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              title="Click to expand"
+            >
+              {summaryPreview}
+            </button>
+          ) : c.status === 'completed' ? (
+            <button
+              onClick={() => void resummarize()}
+              disabled={busy}
+              className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              title="Generate AI summary"
+            >
+              {busy ? <Spinner /> : <Sparkles size={11} />} Summarize
+            </button>
+          ) : (
+            <span className="text-xs text-[var(--color-text-muted)]">—</span>
+          )}
+        </td>
+      </tr>
+      {expanded && summary ? (
+        <tr className="border-b border-[var(--color-border-muted)] bg-[var(--color-surface-muted)]">
+          <td colSpan={8} className="py-3 px-4">
+            <div className="flex items-start justify-between gap-3">
+              <pre className="flex-1 whitespace-pre-wrap font-sans text-xs text-[var(--color-text)]">
+                {summary}
+              </pre>
+              <button
+                onClick={() => void resummarize()}
+                disabled={busy}
+                className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                title="Re-generate AI summary"
+              >
+                {busy ? <Spinner /> : <Sparkles size={11} />} Re-summarize
+              </button>
+            </div>
+            <div className="mt-2 text-[10px] text-[var(--color-text-muted)]">
+              {c.aiSummarizedAt ? new Date(c.aiSummarizedAt).toLocaleString() : ''}
+              {c.aiSummaryMode ? ` · ${c.aiSummaryMode}` : ''}
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }

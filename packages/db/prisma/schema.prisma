@@ -408,6 +408,12 @@ model CallLog {
   recordingSid    String?
   disposition     String?    // 'interested' | 'not_interested' | 'voicemail' | 'callback' | 'wrong_number' | 'dnc' | 'booked'
   notes           String?
+  // Phase 8.4 — call transcription + AI summary.
+  transcript      String?    @db.Text
+  transcriptSource String?   // 'twilio' | 'whisper' | 'stub'
+  aiSummary       String?    @db.Text
+  aiSummarizedAt  DateTime?
+  aiSummaryMode   String?    // 'real' | 'dry-run'
   startedAt       DateTime   @default(now())
   endedAt         DateTime?
 
@@ -648,6 +654,10 @@ model Appointment {
   outcomeNotes    String?
   retainerFeeCents Int?      // when outcome=RETAINER, the agreed retainer
   notes           String?
+  // Phase 8.4 — AI consultation summary (LLM-generated from notes/outcomeNotes).
+  aiSummary       String?    @db.Text
+  aiSummarizedAt  DateTime?
+  aiSummaryMode   String?    // 'real' | 'dry-run'
   createdBy       String     @db.Uuid
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt

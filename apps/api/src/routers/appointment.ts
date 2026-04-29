@@ -472,6 +472,37 @@ export const appointmentRouter = router({
         },
       );
 
+      // Phase 8.4 — fire AI consultation summary asynchronously when there
+      // are notes worth summarizing. Worker handles AiSettings + budget
+      // gating + logging; failure is best-effort and never blocks outcome.
+      const noteLen = (input.outcomeNotes?.length ?? 0) + (a.notes?.length ?? 0);
+      if (noteLen >= 20) {
+        const { summarizeConsultationAsync } = await import('../lib/ai-summarize.js');
+        void summarizeConsultationAsync(ctx.prisma, a.id);
+      }
+
       return { ...updated, caseId };
+    }),
+
+  // Phase 8.4 — manual re-summarize a consultation.
+  summarize: requirePermission('ai', 'write')
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const a = await ctx.prisma.appointment.findFirst({
+        where: { id: input.id, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!a) throw new TRPCError({ code: 'NOT_FOUND' });
+      const { summarizeConsultationAsync } = await import('../lib/ai-summarize.js');
+      await summarizeConsultationAsync(ctx.prisma, a.id);
+      const refreshed = await ctx.prisma.appointment.findUnique({
+        where: { id: a.id },
+        select: {
+          aiSummary: true,
+          aiSummarizedAt: true,
+          aiSummaryMode: true,
+        },
+      });
+      return refreshed;
     }),
 });

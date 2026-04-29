@@ -749,3 +749,296 @@ export async function composeMissingDocsMessage(
   if (isDryRun) return composeAgentDryRun(input);
   return composeAgentReal(input);
 }
+
+// ─── Phase 8.4: Call transcription + summarization ──────────────────────
+//
+// Transcription: Anthropic Claude doesn't take audio directly today, so
+// real mode prefers Twilio's built-in `TranscriptionText` (set on the
+// recording webhook when `Recording: true` is paired with
+// `transcribe: true` on the Twilio side). When Twilio didn't provide a
+// transcript, we surface a placeholder + `source: 'stub'` so staff sees
+// the recording is there but transcription isn't configured. A future
+// phase can plug in Whisper / AssemblyAI behind this same interface.
+
+export type TranscribeInput = {
+  /** R2 key or signed URL for the recording — for future Whisper hookup. */
+  recordingUrl: string | null;
+  /** Twilio's `TranscriptionText` field if it set up transcription. */
+  twilioTranscriptionText?: string | null;
+  /** Recording length, used by the dry-run + summarizer. */
+  durationSec?: number;
+};
+
+export type TranscribeResult = {
+  transcript: string;
+  source: 'twilio' | 'whisper' | 'stub';
+  mode: AiMode;
+};
+
+export async function transcribeRecording(input: TranscribeInput): Promise<TranscribeResult> {
+  if (isDryRun) {
+    const seconds = input.durationSec ?? 90;
+    return {
+      transcript: `[DRY-RUN TRANSCRIPT — ${seconds}s call]\nAgent: Hi, this is a follow-up about your immigration consultation. How are you doing today?\nClient: I'm doing well, thanks for calling. I had a question about the work permit timeline.\nAgent: Of course. After we file, IRCC typically takes 6 to 14 weeks. We'll keep you posted on every status change.\nClient: Great. Also, I should be able to send the rest of my documents next week.\nAgent: Perfect. I'll make a note. Talk soon.`,
+      source: 'stub',
+      mode: 'dry-run',
+    };
+  }
+  if (input.twilioTranscriptionText && input.twilioTranscriptionText.trim().length > 0) {
+    return {
+      transcript: input.twilioTranscriptionText.trim(),
+      source: 'twilio',
+      mode: 'real',
+    };
+  }
+  // No STT provider configured. Surface a clear placeholder so staff
+  // knows the recording exists but transcription wasn't done.
+  return {
+    transcript: '[Transcription not available — speech-to-text provider not configured for this firm.]',
+    source: 'stub',
+    mode: 'real',
+  };
+}
+
+// ─── Call summary ────────────────────────────────────────────────────────
+
+export type CallSummaryInput = {
+  transcript: string;
+  durationSec?: number;
+  agentName?: string;
+  leadFirstName?: string;
+  leadLastName?: string;
+  /** Override default Sonnet. */
+  model?: string;
+};
+
+export type SummaryResult = {
+  summary: string;
+  mode: AiMode;
+  usage: AiUsageMetrics;
+};
+
+const CALL_SUMMARY_SYSTEM_PROMPT = `You summarize a phone call between a
+Canadian immigration law firm's staff and a lead/client. Output a tight
+brief that helps the next person who picks up this lead understand:
+
+  1. Why the call happened (1 sentence).
+  2. What the client / lead said — facts, NOT opinions or fluff.
+  3. What was promised (next steps).
+  4. Risk flags (fee concerns, timeline anxiety, language barrier, etc).
+  5. Disposition guess: 'hot' | 'lukewarm' | 'cold' | 'wrong_number' | 'dnc'.
+
+Hard rules:
+  - Plain text only, no markdown, no headings, no JSON.
+  - 80 to 200 words total.
+  - Lead with one short paragraph (overview), then a "Next steps:" line
+    with bullet points using "- " prefix.
+  - End with "Disposition: <label>".
+  - Do NOT invent facts. If the transcript is too short / incoherent,
+    say "Insufficient transcript for a reliable summary." and stop.`;
+
+function buildCallSummaryPrompt(input: CallSummaryInput): string {
+  const lines: string[] = [];
+  lines.push(`Duration: ${input.durationSec ?? 'unknown'}s`);
+  if (input.agentName) lines.push(`Staff agent: ${input.agentName}`);
+  if (input.leadFirstName || input.leadLastName) {
+    lines.push(`Lead: ${[input.leadFirstName, input.leadLastName].filter(Boolean).join(' ')}`);
+  }
+  lines.push('');
+  lines.push('Transcript:');
+  lines.push(input.transcript);
+  return lines.join('\n');
+}
+
+function summarizeCallDryRun(input: CallSummaryInput): SummaryResult {
+  const dur = input.durationSec ?? 60;
+  const summary = `${input.agentName ?? 'Agent'} spoke with ${input.leadFirstName ?? 'the lead'} for ${Math.round(dur)} seconds about their immigration file. Lead seemed engaged and responsive; asked about IRCC processing timelines and confirmed they'll send remaining documents next week.
+
+Next steps:
+- Wait for documents (expected within 7 days).
+- Follow up if nothing is uploaded by next Friday.
+- Mark the lead as a strong candidate for retention.
+
+Disposition: hot`;
+  const model = input.model ?? 'claude-sonnet-4-6';
+  const inputTokens = 800 + Math.min(input.transcript.length, 5000);
+  const outputTokens = 220;
+  return {
+    summary,
+    mode: 'dry-run',
+    usage: {
+      inputTokens,
+      cachedInputTokens: 0,
+      outputTokens,
+      costCents: computeCostCents({ model, inputTokens, cachedInputTokens: 0, outputTokens }),
+      model,
+    },
+  };
+}
+
+async function summarizeCallReal(input: CallSummaryInput): Promise<SummaryResult> {
+  const model = input.model ?? 'claude-sonnet-4-6';
+  const res = await client!.messages.create({
+    model,
+    max_tokens: 600,
+    system: CALL_SUMMARY_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: buildCallSummaryPrompt(input) }],
+  });
+  const summary = res.content
+    .filter((c) => c.type === 'text')
+    .map((c) => (c as { text: string }).text)
+    .join('\n')
+    .trim();
+  const u = (res.usage ?? {}) as {
+    input_tokens?: number;
+    cache_read_input_tokens?: number;
+    output_tokens?: number;
+  };
+  const inputTokens = u.input_tokens ?? 0;
+  const cachedInputTokens = u.cache_read_input_tokens ?? 0;
+  const outputTokens = u.output_tokens ?? 0;
+  return {
+    summary,
+    mode: 'real',
+    usage: {
+      inputTokens,
+      cachedInputTokens,
+      outputTokens,
+      costCents: computeCostCents({ model, inputTokens, cachedInputTokens, outputTokens }),
+      model,
+    },
+  };
+}
+
+export async function summarizeCallTranscript(input: CallSummaryInput): Promise<SummaryResult> {
+  if (isDryRun) return summarizeCallDryRun(input);
+  return summarizeCallReal(input);
+}
+
+// ─── Consultation summary ────────────────────────────────────────────────
+
+export type ConsultSummaryInput = {
+  caseType: string | null;
+  providerName: string;
+  durationMin: number;
+  kind: string;                                                  // 'consultation' | 'followup' | …
+  outcome: string | null;                                        // 'RETAINER' | 'FOLLOWUP' | …
+  notes: string | null;
+  outcomeNotes: string | null;
+  language?: string;
+  /** Override default Sonnet. */
+  model?: string;
+};
+
+const CONSULT_SUMMARY_SYSTEM_PROMPT = `You summarize a Canadian
+immigration consultation for the firm's case file. Output structured plain
+text the lawyer/filer can use as a reference:
+
+  1. One-paragraph overview (3-4 sentences).
+  2. "Key facts:" line with hyphen-prefixed bullets — citizenship,
+     marital status, employment, education, anything material to the
+     application.
+  3. "Concerns / risks:" line with bullets when present.
+  4. "Action items:" line with bullets the firm needs to do next.
+  5. "Outcome: <label>" on its own line at the end.
+
+Hard rules:
+  - Plain text only, no markdown headings, no JSON.
+  - 100 to 250 words.
+  - Use the language code provided (default English).
+  - Do NOT invent facts. Say "Notes too sparse for a reliable summary."
+    if the input is < 30 words of useful content, then stop.`;
+
+function buildConsultPrompt(input: ConsultSummaryInput): string {
+  const lines: string[] = [];
+  lines.push(`Provider: ${input.providerName}`);
+  lines.push(`Kind: ${input.kind}`);
+  lines.push(`Case type: ${input.caseType ?? 'unspecified'}`);
+  lines.push(`Duration: ${input.durationMin} minutes`);
+  if (input.outcome) lines.push(`Outcome: ${input.outcome}`);
+  lines.push(`Language: ${input.language ?? 'en'}`);
+  lines.push('');
+  if (input.notes) {
+    lines.push('Provider notes:');
+    lines.push(input.notes);
+    lines.push('');
+  }
+  if (input.outcomeNotes) {
+    lines.push('Outcome notes:');
+    lines.push(input.outcomeNotes);
+  }
+  return lines.join('\n');
+}
+
+function summarizeConsultDryRun(input: ConsultSummaryInput): SummaryResult {
+  const summary = `Consultation with ${input.providerName} on a ${input.caseType?.replace('_', ' ') ?? 'general'} matter. Client is engaged and interested in proceeding with the firm. Conversation focused on eligibility, processing timelines, and the supporting documents IRCC will require.
+
+Key facts:
+- Lead is open to retaining the firm.
+- Indicated they have most of the required documents already.
+- Estimated processing window discussed (6–14 weeks).
+
+Concerns / risks:
+- Timeline anxiety — wants confirmation of expected dates.
+
+Action items:
+- Send retainer agreement for review.
+- Generate document collection link for upload.
+- Follow up within 3 business days.
+
+Outcome: ${input.outcome ?? 'follow-up'}`;
+  const model = input.model ?? 'claude-sonnet-4-6';
+  const noteLen = (input.notes?.length ?? 0) + (input.outcomeNotes?.length ?? 0);
+  const inputTokens = 600 + Math.min(noteLen, 4000);
+  const outputTokens = 240;
+  return {
+    summary,
+    mode: 'dry-run',
+    usage: {
+      inputTokens,
+      cachedInputTokens: 0,
+      outputTokens,
+      costCents: computeCostCents({ model, inputTokens, cachedInputTokens: 0, outputTokens }),
+      model,
+    },
+  };
+}
+
+async function summarizeConsultReal(input: ConsultSummaryInput): Promise<SummaryResult> {
+  const model = input.model ?? 'claude-sonnet-4-6';
+  const res = await client!.messages.create({
+    model,
+    max_tokens: 700,
+    system: CONSULT_SUMMARY_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: buildConsultPrompt(input) }],
+  });
+  const summary = res.content
+    .filter((c) => c.type === 'text')
+    .map((c) => (c as { text: string }).text)
+    .join('\n')
+    .trim();
+  const u = (res.usage ?? {}) as {
+    input_tokens?: number;
+    cache_read_input_tokens?: number;
+    output_tokens?: number;
+  };
+  const inputTokens = u.input_tokens ?? 0;
+  const cachedInputTokens = u.cache_read_input_tokens ?? 0;
+  const outputTokens = u.output_tokens ?? 0;
+  return {
+    summary,
+    mode: 'real',
+    usage: {
+      inputTokens,
+      cachedInputTokens,
+      outputTokens,
+      costCents: computeCostCents({ model, inputTokens, cachedInputTokens, outputTokens }),
+      model,
+    },
+  };
+}
+
+export async function summarizeConsultation(input: ConsultSummaryInput): Promise<SummaryResult> {
+  if (isDryRun) return summarizeConsultDryRun(input);
+  return summarizeConsultReal(input);
+}

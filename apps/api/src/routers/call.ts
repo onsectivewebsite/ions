@@ -198,4 +198,28 @@ export const callRouter = router({
       if (!log) throw new TRPCError({ code: 'NOT_FOUND' });
       return log;
     }),
+
+  // Phase 8.4 — manual re-summarize. Synchronous so staff get feedback.
+  summarize: requirePermission('ai', 'write')
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const log = await ctx.prisma.callLog.findFirst({
+        where: { id: input.id, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!log) throw new TRPCError({ code: 'NOT_FOUND' });
+      const { summarizeCallAsync } = await import('../lib/ai-summarize.js');
+      await summarizeCallAsync(ctx.prisma, log.id);
+      const refreshed = await ctx.prisma.callLog.findUnique({
+        where: { id: log.id },
+        select: {
+          transcript: true,
+          transcriptSource: true,
+          aiSummary: true,
+          aiSummarizedAt: true,
+          aiSummaryMode: true,
+        },
+      });
+      return refreshed;
+    }),
 });

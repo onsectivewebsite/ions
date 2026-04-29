@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle2, Clock, Phone, User, X } from 'lucide-react';
+import { CheckCircle2, Clock, Phone, Sparkles, User, X } from 'lucide-react';
 import { Badge, Button, Card, CardTitle, Input, Label, Spinner } from '@onsecboad/ui';
 import { rpcMutation } from '../../lib/api';
 import { getAccessToken } from '../../lib/session';
@@ -31,6 +31,9 @@ export type Appointment = {
   outcomeNotes: string | null;
   retainerFeeCents: number | null;
   notes: string | null;
+  aiSummary: string | null;
+  aiSummarizedAt: string | null;
+  aiSummaryMode: 'real' | 'dry-run' | null;
   provider: { id: string; name: string; email: string };
   client: { id: string; firstName: string | null; lastName: string | null; phone: string } | null;
   lead: {
@@ -231,8 +234,73 @@ export function AppointmentDetail({
             ) : null}
           </Card>
         ) : null}
+
+        <ConsultSummaryCard appt={appt} />
       </div>
     </div>
+  );
+}
+
+function ConsultSummaryCard({ appt }: { appt: Appointment }) {
+  const [summary, setSummary] = useState<string | null>(appt.aiSummary);
+  const [summaryAt, setSummaryAt] = useState<string | null>(appt.aiSummarizedAt);
+  const [mode, setMode] = useState<'real' | 'dry-run' | null>(appt.aiSummaryMode);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function regenerate(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const t = getAccessToken();
+      const r = await rpcMutation<{
+        aiSummary: string | null;
+        aiSummarizedAt: string | null;
+        aiSummaryMode: 'real' | 'dry-run' | null;
+      }>('appointment.summarize', { id: appt.id }, { token: t });
+      setSummary(r.aiSummary);
+      setSummaryAt(r.aiSummarizedAt);
+      setMode(r.aiSummaryMode);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Summary failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Render only when there's something to summarize OR a summary exists.
+  const eligible = summary != null || (appt.outcomeNotes ?? appt.notes ?? '').length >= 20;
+  if (!eligible) return null;
+
+  return (
+    <Card className="mt-4">
+      <div className="flex items-center justify-between">
+        <CardTitle>AI summary</CardTitle>
+        <Button size="sm" variant="ghost" onClick={() => void regenerate()} disabled={busy}>
+          {busy ? <Spinner /> : <Sparkles size={12} />}
+          {summary ? 'Regenerate' : 'Generate'}
+        </Button>
+      </div>
+      {error ? (
+        <div className="mt-2 rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] p-2 text-xs text-[var(--color-danger)]">
+          {error}
+        </div>
+      ) : null}
+      {summary ? (
+        <>
+          <pre className="mt-3 whitespace-pre-wrap font-sans text-sm">{summary}</pre>
+          <div className="mt-2 text-[10px] text-[var(--color-text-muted)]">
+            {summaryAt ? `Generated ${new Date(summaryAt).toLocaleString()}` : ''}
+            {mode ? ` · ${mode}` : ''}
+          </div>
+        </>
+      ) : (
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+          AI will turn the consultation notes into a structured brief — key facts, risks, action
+          items, and outcome.
+        </p>
+      )}
+    </Card>
   );
 }
 
