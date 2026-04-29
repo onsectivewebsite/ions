@@ -16,6 +16,12 @@ import { z } from 'zod';
 import { Prisma } from '@onsecboad/db';
 import { signedUrl } from '@onsecboad/r2';
 import { extractCaseData, aiMode } from '@onsecboad/ai';
+import {
+  AiBudgetExceeded,
+  AiDisabled,
+  assertAiAllowed,
+  logAiUsage,
+} from '../lib/ai-usage.js';
 import { router } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
 import { logger } from '../logger.js';
@@ -115,6 +121,21 @@ export const caseAiRouter = router({
       });
       if (!c) throw new TRPCError({ code: 'NOT_FOUND' });
 
+      // Phase 8.1 budget + kill-switch gate. Refuses BEFORE we mark
+      // RUNNING so the UI can show a meaningful error.
+      let settings;
+      try {
+        settings = await assertAiAllowed(ctx.prisma, ctx.tenantId, 'extract');
+      } catch (e) {
+        if (e instanceof AiDisabled) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: e.message });
+        }
+        if (e instanceof AiBudgetExceeded) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: e.message });
+        }
+        throw e;
+      }
+
       // Mark RUNNING up front so the UI can poll-or-refetch and see progress.
       // upsert handles first-run.
       await ctx.prisma.caseAiData.upsert({
@@ -187,6 +208,23 @@ export const caseAiRouter = router({
           caseType: c.caseType,
           documents,
           intakeData,
+          model: settings.preferredModel,
+        });
+
+        // Phase 8.1 usage logging — record tokens + cost on every call,
+        // even in dry-run (so the dashboard renders without real keys).
+        await logAiUsage(ctx.prisma, {
+          tenantId: ctx.tenantId,
+          feature: 'extract',
+          model: result.usage.model,
+          inputTokens: result.usage.inputTokens,
+          cachedInputTokens: result.usage.cachedInputTokens,
+          outputTokens: result.usage.outputTokens,
+          costCents: result.usage.costCents,
+          mode: result.mode,
+          refType: 'Case',
+          refId: c.id,
+          createdById: ctx.session.sub,
         });
 
         const updated = await ctx.prisma.caseAiData.update({
@@ -213,6 +251,8 @@ export const caseAiRouter = router({
               uploadsConsidered: documents.length,
               mode: result.mode,
               fieldCount: Object.keys(result.provenance).length,
+              costCents: result.usage.costCents,
+              model: result.usage.model,
             },
             ip: ctx.ip,
             userAgent: ctx.userAgent ?? null,
@@ -223,7 +263,12 @@ export const caseAiRouter = router({
           { caseId: c.id, mode: result.mode, uploads: documents.length },
           'ai: extraction complete',
         );
-        return { ok: true, mode: result.mode, status: updated.status };
+        return {
+          ok: true,
+          mode: result.mode,
+          status: updated.status,
+          usage: result.usage,
+        };
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'AI extraction failed';
         await ctx.prisma.caseAiData.update({

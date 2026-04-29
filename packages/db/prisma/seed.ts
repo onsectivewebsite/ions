@@ -49,6 +49,7 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       intake: { read: 'branch', write: 'branch', delete: false },
       retainer: { read: 'branch', write: 'branch', delete: false },
       ai: { read: 'branch', write: 'branch', delete: false },
+      aiSettings: { read: 'branch', write: false, delete: false },
       invoices: { read: 'branch', write: 'branch', delete: false },
       messages: { read: 'branch', write: 'branch', delete: false },
       users: { read: 'branch', write: 'branch', delete: 'branch' },

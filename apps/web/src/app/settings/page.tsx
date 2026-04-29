@@ -14,6 +14,7 @@ import {
   Palette,
   Phone,
   Shield,
+  Sparkles,
   Workflow,
   ChevronRight,
   type LucideIcon,
@@ -165,6 +166,12 @@ export default function SettingsIndexPage() {
       icon: FilePlus,
       title: 'PDF form templates',
       description: 'Upload IRCC PDFs and map their fields to AI-extracted data.',
+    });
+    tiles.push({
+      href: '/settings/ai',
+      icon: Sparkles,
+      title: 'AI features',
+      description: 'Enable / disable AI, set monthly budget, pick the model.',
     });
   }
 

@@ -43,6 +43,8 @@ export type ExtractInput = {
   documents: DocumentInput[];
   /** Optional intake form values to combine with document extraction. */
   intakeData?: IntakeData;
+  /** Override env-default model. Phase 8.1 lets firms pick per-tenant. */
+  model?: string;
 };
 
 export type FieldProvenance = {
@@ -52,12 +54,63 @@ export type FieldProvenance = {
   confidence: number;
 };
 
+export type AiUsageMetrics = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  /** Computed via PRICE_TABLE × tokens at the time of the call. */
+  costCents: number;
+  /** Echoed so callers can persist exactly which model was used. */
+  model: string;
+};
+
 export type ExtractResult = {
   data: Record<string, unknown>;
   /** Flat dotted-key map: 'applicant.firstName' → { source, confidence }. */
   provenance: Record<string, FieldProvenance>;
   mode: AiMode;
+  /** Token + cost breakdown, used by Phase 8.1 usage logging. */
+  usage: AiUsageMetrics;
 };
+
+// ─── Pricing ────────────────────────────────────────────────────────────
+//
+// Per-million-token rates in USD as of late 2025; converted to CAD at the
+// firm-display layer if needed. Update this table when Anthropic publishes
+// new pricing — historical AiUsage rows already carry a frozen costCents.
+//
+// Cached-input pricing is ~10% of standard input — we apply when the SDK
+// reports cache_read_input_tokens. If a model isn't in the table we fall
+// back to Sonnet rates (safe over-estimate).
+const PRICE_TABLE_USD_PER_MILLION: Record<
+  string,
+  { input: number; cachedInput: number; output: number }
+> = {
+  'claude-opus-4-7': { input: 15, cachedInput: 1.5, output: 75 },
+  'claude-opus-4-6': { input: 15, cachedInput: 1.5, output: 75 },
+  'claude-sonnet-4-6': { input: 3, cachedInput: 0.3, output: 15 },
+  'claude-sonnet-4-5': { input: 3, cachedInput: 0.3, output: 15 },
+  'claude-haiku-4-5-20251001': { input: 1, cachedInput: 0.1, output: 5 },
+  'claude-haiku-4-5': { input: 1, cachedInput: 0.1, output: 5 },
+};
+
+const USD_TO_CAD = 1.36; // freeze at write time; refresh on next pricing review.
+
+export function computeCostCents(args: {
+  model: string;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+}): number {
+  const rates =
+    PRICE_TABLE_USD_PER_MILLION[args.model] ?? PRICE_TABLE_USD_PER_MILLION['claude-sonnet-4-6']!;
+  const usd =
+    (args.inputTokens * rates.input +
+      args.cachedInputTokens * rates.cachedInput +
+      args.outputTokens * rates.output) /
+    1_000_000;
+  return Math.round(usd * USD_TO_CAD * 100);
+}
 
 // ─── Prompt + schema definition ─────────────────────────────────────────
 
@@ -145,8 +198,9 @@ async function callReal(input: ExtractInput): Promise<ExtractResult> {
   // on what it just read.
   const content: ContentBlock[] = [...docs, userText];
 
+  const model = input.model ?? env.ANTHROPIC_MODEL;
   const res = await client!.messages.create({
-    model: env.ANTHROPIC_MODEL,
+    model,
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: content as never }],
@@ -157,10 +211,30 @@ async function callReal(input: ExtractInput): Promise<ExtractResult> {
     .map((c) => (c as { text: string }).text)
     .join('\n');
   const json = parseJsonLoose(text);
+
+  // SDK exposes cache_read_input_tokens / cache_creation_input_tokens when
+  // prompt caching is in play; for Phase 8.1 we sum cache-read separately
+  // from regular input and compute cost via the PRICE_TABLE.
+  const u = (res.usage ?? {}) as {
+    input_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+    output_tokens?: number;
+  };
+  const inputTokens = u.input_tokens ?? 0;
+  const cachedInputTokens = u.cache_read_input_tokens ?? 0;
+  const outputTokens = u.output_tokens ?? 0;
   return {
     data: (json.data ?? {}) as Record<string, unknown>,
     provenance: (json.provenance ?? {}) as Record<string, FieldProvenance>,
     mode: 'real',
+    usage: {
+      inputTokens,
+      cachedInputTokens,
+      outputTokens,
+      costCents: computeCostCents({ model, inputTokens, cachedInputTokens, outputTokens }),
+      model,
+    },
   };
 }
 
@@ -305,7 +379,24 @@ function callDryRun(input: ExtractInput): ExtractResult {
   };
   if (photoDoc) PROVENANCE['applicant.photo'] = { source: photoDoc, confidence: 1.0 };
 
-  return { data, provenance: PROVENANCE, mode: 'dry-run' };
+  // Realistic-looking dry-run usage so the dashboard renders a non-zero
+  // bar even before real keys are wired. Doc-heavy extraction → ~3k input,
+  // ~1k output tokens; same shape as a real Sonnet call.
+  const model = input.model ?? env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+  const inputTokens = 3000 + input.documents.length * 200;
+  const outputTokens = 800;
+  return {
+    data,
+    provenance: PROVENANCE,
+    mode: 'dry-run',
+    usage: {
+      inputTokens,
+      cachedInputTokens: 0,
+      outputTokens,
+      costCents: computeCostCents({ model, inputTokens, cachedInputTokens: 0, outputTokens }),
+      model,
+    },
+  };
 }
 
 // ─── Public entry ───────────────────────────────────────────────────────

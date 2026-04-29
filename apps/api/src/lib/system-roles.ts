@@ -43,6 +43,9 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       intake: { read: 'branch', write: 'branch', delete: false },
       retainer: { read: 'branch', write: 'branch', delete: false },
       ai: { read: 'branch', write: 'branch', delete: false },
+      // AI settings + usage — branch managers can READ usage but not flip
+      // toggles or change the budget. Read-only branch scope.
+      aiSettings: { read: 'branch', write: false, delete: false },
       invoices: { read: 'branch', write: 'branch', delete: false },
       messages: { read: 'branch', write: 'branch', delete: false },
       // Phase 2 administrative scopes — branch managers can run their branch.
