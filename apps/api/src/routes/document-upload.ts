@@ -24,6 +24,7 @@ import { verifyAccessToken } from '@onsecboad/auth';
 import { loadEnv } from '@onsecboad/config';
 import { logger } from '../logger.js';
 import { hashCollectionToken, type ChecklistItem } from '../lib/document-collection.js';
+import { enqueueClassify } from '../lib/ai-classify.js';
 
 const env = loadEnv();
 
@@ -241,6 +242,7 @@ export async function staffUploadHandler(req: Request, res: Response): Promise<v
         userAgent: req.header('user-agent') ?? null,
       },
     });
+    enqueueClassify(r.id);
     res.status(201).json({ ok: true, ...r });
   } catch (e) {
     logger.error({ err: e, caseId, itemKey: meta.itemKey }, 'staff upload failed');
@@ -361,6 +363,7 @@ export async function publicCollectionUploadHandler(req: Request, res: Response)
         userAgent: req.header('user-agent') ?? null,
       },
     });
+    enqueueClassify(r.id);
     res.status(201).json({ ok: true, ...r });
   } catch (e) {
     logger.error({ err: e, caseId: c.caseId, itemKey: meta.itemKey }, 'public upload failed');
@@ -550,6 +553,7 @@ export async function portalUploadHandler(req: Request, res: Response): Promise<
         userAgent: req.header('user-agent') ?? null,
       },
     });
+    enqueueClassify(r.id);
     res.status(201).json({ ok: true, ...r });
   } catch (e) {
     logger.error({ err: e, caseId, itemKey: meta.itemKey }, 'portal upload failed');

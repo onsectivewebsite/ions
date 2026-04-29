@@ -5,6 +5,7 @@ import {
   Copy,
   Download,
   FileUp,
+  Sparkles,
   Lock,
   Mail,
   MessageSquare,
@@ -30,6 +31,11 @@ type Upload = {
   uploadedById: string | null;
   uploadedByName: string | null;
   createdAt: string;
+  aiCategory: string | null;
+  aiCategoryLabel: string | null;
+  aiConfidence: number | null;
+  aiClassifiedAt: string | null;
+  aiClassifyMode: 'real' | 'dry-run' | null;
 };
 
 type Item = {
@@ -363,27 +369,96 @@ function DocumentItemRow({
       {item.uploads.length > 0 ? (
         <ul className="mt-3 divide-y divide-[var(--color-border-muted)] text-xs">
           {item.uploads.map((u) => (
-            <li key={u.id} className="flex items-center justify-between py-1.5">
-              <div>
-                <div className="font-medium">{u.fileName}</div>
-                <div className="text-[10px] text-[var(--color-text-muted)]">
-                  {(u.sizeBytes / 1024).toFixed(1)} KB ·{' '}
-                  {new Date(u.createdAt).toLocaleString()}
-                  {u.uploadedByName ? ` · uploaded by ${u.uploadedByName}` : ''}
-                  {!u.uploadedById && !u.uploadedByName ? ' · client (public link)' : ''}
-                </div>
-              </div>
-              <button
-                onClick={() => void onDownload(u.id)}
-                className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                title="Download"
-              >
-                <Download size={12} />
-              </button>
-            </li>
+            <UploadRow
+              key={u.id}
+              u={u}
+              itemKey={item.key}
+              onDownload={onDownload}
+              onError={onError}
+              onAfterReclassify={onAfter}
+            />
           ))}
         </ul>
       ) : null}
+    </li>
+  );
+}
+
+function UploadRow({
+  u,
+  itemKey,
+  onDownload,
+  onError,
+  onAfterReclassify,
+}: {
+  u: Upload;
+  itemKey: string;
+  onDownload: (uploadId: string) => Promise<void>;
+  onError: (m: string) => void;
+  onAfterReclassify: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function reclassify(): Promise<void> {
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      await rpcMutation('documentCollection.reclassify', { uploadId: u.id }, { token });
+      await onAfterReclassify();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Reclassify failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Mismatch: AI thinks this doc belongs under a different checklist item.
+  const mismatch =
+    u.aiCategory != null &&
+    u.aiConfidence != null &&
+    u.aiConfidence >= 0.7 &&
+    u.aiCategory !== itemKey;
+  const aiTone: 'success' | 'warning' | 'neutral' =
+    u.aiConfidence == null ? 'neutral' : u.aiConfidence >= 0.85 ? 'success' : 'warning';
+
+  return (
+    <li className="flex items-center justify-between py-1.5">
+      <div className="min-w-0">
+        <div className="font-medium">{u.fileName}</div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+          <span>
+            {(u.sizeBytes / 1024).toFixed(1)} KB · {new Date(u.createdAt).toLocaleString()}
+            {u.uploadedByName ? ` · uploaded by ${u.uploadedByName}` : ''}
+            {!u.uploadedById && !u.uploadedByName ? ' · client (public link)' : ''}
+          </span>
+          {u.aiCategory ? (
+            <Badge tone={aiTone}>
+              AI: {u.aiCategoryLabel ?? u.aiCategory}
+              {u.aiConfidence != null ? ` · ${Math.round(u.aiConfidence * 100)}%` : ''}
+            </Badge>
+          ) : u.aiClassifiedAt ? (
+            <Badge tone="neutral">AI: no match</Badge>
+          ) : null}
+          {mismatch ? <Badge tone="warning">↪ Slot mismatch</Badge> : null}
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => void reclassify()}
+          disabled={busy}
+          className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          title="Re-classify with AI"
+        >
+          {busy ? <Spinner /> : <Sparkles size={12} />}
+        </button>
+        <button
+          onClick={() => void onDownload(u.id)}
+          className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          title="Download"
+        >
+          <Download size={12} />
+        </button>
+      </div>
     </li>
   );
 }

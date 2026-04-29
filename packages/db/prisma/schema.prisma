@@ -920,6 +920,14 @@ model DocumentUpload {
   // Versioning
   supersededAt    DateTime?
   supersededById  String?  @db.Uuid
+  // Phase 8.2 — auto-classified category (or manually re-classified).
+  // aiCategory matches a checklist item key when one fits; otherwise free
+  // form. aiConfidence is 0..1 self-reported; null = never classified.
+  aiCategory      String?
+  aiCategoryLabel String?
+  aiConfidence    Float?
+  aiClassifiedAt  DateTime?
+  aiClassifyMode  String?
   createdAt       DateTime @default(now())
 
   @@index([tenantId, caseId, itemKey, supersededAt])

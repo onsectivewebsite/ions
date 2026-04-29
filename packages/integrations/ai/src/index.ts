@@ -405,3 +405,215 @@ export async function extractCaseData(input: ExtractInput): Promise<ExtractResul
   if (isDryRun) return callDryRun(input);
   return callReal(input);
 }
+
+// ─── Phase 8.2: Document classification ─────────────────────────────────
+//
+// Cheap-fast tag for a freshly-uploaded document. We hand the model a
+// single file plus the case-type's checklist (key + label list) and ask
+// it to pick the best match (or null if nothing fits).
+//
+// Defaults to Haiku — extraction-quality reasoning isn't needed; we only
+// want a category + confidence.
+
+export type ClassifyCandidate = {
+  /** Stable key from the checklist item (e.g. 'passport'). */
+  key: string;
+  /** Human label (e.g. 'Passport (bio page)'). */
+  label: string;
+};
+
+export type ClassifyInput = {
+  caseType: string;
+  document: DocumentInput;
+  /** Items to choose from. If empty, the model uses an open-vocabulary
+   *  set drawn from typical immigration document categories. */
+  candidates?: ClassifyCandidate[];
+  /** Override default Haiku. */
+  model?: string;
+};
+
+export type ClassifyResult = {
+  /** Matched candidate key, or a free-form lower-snake category when no
+   *  candidates were supplied. null when the model can't make a call. */
+  category: string | null;
+  /** Display label — same as candidate.label when matched, otherwise the
+   *  free-form string the model returned. */
+  categoryLabel: string | null;
+  /** 0..1 — model's self-reported certainty. */
+  confidence: number;
+  mode: AiMode;
+  usage: AiUsageMetrics;
+};
+
+const CLASSIFY_SYSTEM_PROMPT = `You classify a single uploaded document
+for a Canadian immigration law firm. Output ONLY valid JSON of shape
+{ "category": "<key or null>", "label": "<display name or null>",
+  "confidence": <0..1> }.
+
+Choose ONE category from the candidate list (key field). If none fit
+well, return { "category": null, "label": null, "confidence": 0 }. Do
+NOT invent categories outside the candidate list when one is provided.
+
+Confidence rubric:
+  0.95+ — bio page of passport, official government doc with explicit
+          markings, signed cover letter on letterhead.
+  0.8–0.94 — clear match with one or two minor ambiguities.
+  0.6–0.79 — likely match but blurry / partial / unusual format.
+  <0.6   — uncertain — prefer null + 0.0 over a low-confidence guess.`;
+
+function buildClassifyPrompt(input: ClassifyInput): string {
+  const lines: string[] = [];
+  lines.push(`Case type: ${input.caseType}`);
+  lines.push(`File: ${input.document.fileName} (${input.document.contentType})`);
+  if (input.candidates && input.candidates.length > 0) {
+    lines.push('');
+    lines.push('Candidate categories:');
+    for (const c of input.candidates) {
+      lines.push(`  - ${c.key} : ${c.label}`);
+    }
+    lines.push('');
+    lines.push('Pick ONE category by its key, or null if none fit.');
+  } else {
+    lines.push('No candidate list — pick a sensible immigration-doc category.');
+  }
+  return lines.join('\n');
+}
+
+// Lightweight filename heuristics so the dry-run mode picks "the right"
+// answer from candidates without hitting the API. Used to keep the UI
+// honest end-to-end.
+function classifyHeuristic(input: ClassifyInput): { key: string | null; label: string | null; confidence: number } {
+  const name = input.document.fileName.toLowerCase();
+  const keys = new Map<string, string>();
+  for (const c of input.candidates ?? []) keys.set(c.key, c.label);
+
+  function pick(...keysToTry: string[]): { key: string; label: string } | null {
+    for (const k of keysToTry) {
+      if (keys.has(k)) return { key: k, label: keys.get(k)! };
+    }
+    return null;
+  }
+
+  if (/passport|bio[\s_-]?page/.test(name)) {
+    const m = pick('passport') ?? { key: 'passport', label: 'Passport (bio page)' };
+    return { ...m, confidence: 0.96 };
+  }
+  if (/photo|headshot|portrait/.test(name)) {
+    const m = pick('photo') ?? { key: 'photo', label: 'Passport-size photo' };
+    return { ...m, confidence: 0.9 };
+  }
+  if (/ielts|toefl|celpip|english/.test(name)) {
+    const m = pick('ielts') ?? { key: 'ielts', label: 'IELTS scorecard' };
+    return { ...m, confidence: 0.9 };
+  }
+  if (/transcript|degree|diploma|education/.test(name)) {
+    const m = pick('transcript', 'transcripts', 'education') ?? {
+      key: 'transcripts',
+      label: 'Education transcripts',
+    };
+    return { ...m, confidence: 0.85 };
+  }
+  if (/employer|offer|letter|job/.test(name)) {
+    const m = pick('employer_letter', 'job_offer') ?? {
+      key: 'employer_letter',
+      label: 'Employer letter',
+    };
+    return { ...m, confidence: 0.85 };
+  }
+  if (/bank|funds|statement/.test(name)) {
+    const m = pick('proof_of_funds') ?? { key: 'proof_of_funds', label: 'Proof of funds' };
+    return { ...m, confidence: 0.88 };
+  }
+  if (/marriage|spouse|family/.test(name)) {
+    const m = pick('marriage_cert', 'marriage_certificate') ?? {
+      key: 'marriage_certificate',
+      label: 'Marriage certificate',
+    };
+    return { ...m, confidence: 0.8 };
+  }
+  if (/id|driver|licen[cs]e/.test(name)) {
+    const m = pick('id_proof') ?? { key: 'id_proof', label: 'Government-issued ID' };
+    return { ...m, confidence: 0.78 };
+  }
+  return { key: null, label: null, confidence: 0 };
+}
+
+async function classifyReal(input: ClassifyInput): Promise<ClassifyResult> {
+  const block = toContentBlock(input.document);
+  const userText: ContentBlock = { type: 'text', text: buildClassifyPrompt(input) };
+  const content: ContentBlock[] = block ? [block, userText] : [userText];
+
+  const model = input.model ?? 'claude-haiku-4-5';
+  const res = await client!.messages.create({
+    model,
+    max_tokens: 256,
+    system: CLASSIFY_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: content as never }],
+  });
+  const text = res.content
+    .filter((c) => c.type === 'text')
+    .map((c) => (c as { text: string }).text)
+    .join('\n');
+  const json = parseJsonLoose(text) as {
+    category?: string | null;
+    label?: string | null;
+    confidence?: number;
+  };
+  // If the model returned a key that isn't in candidates, treat as miss.
+  const candidateMap = new Map((input.candidates ?? []).map((c) => [c.key, c.label]));
+  let category = json.category ?? null;
+  let label = json.label ?? null;
+  if (input.candidates && input.candidates.length > 0 && category && !candidateMap.has(category)) {
+    category = null;
+    label = null;
+  }
+  if (category && !label) label = candidateMap.get(category) ?? category;
+
+  const u = (res.usage ?? {}) as {
+    input_tokens?: number;
+    cache_read_input_tokens?: number;
+    output_tokens?: number;
+  };
+  const inputTokens = u.input_tokens ?? 0;
+  const cachedInputTokens = u.cache_read_input_tokens ?? 0;
+  const outputTokens = u.output_tokens ?? 0;
+  return {
+    category,
+    categoryLabel: label,
+    confidence: typeof json.confidence === 'number' ? json.confidence : 0,
+    mode: 'real',
+    usage: {
+      inputTokens,
+      cachedInputTokens,
+      outputTokens,
+      costCents: computeCostCents({ model, inputTokens, cachedInputTokens, outputTokens }),
+      model,
+    },
+  };
+}
+
+function classifyDryRun(input: ClassifyInput): ClassifyResult {
+  const guess = classifyHeuristic(input);
+  // Realistic dry-run cost so the dashboard renders.
+  const model = input.model ?? 'claude-haiku-4-5';
+  const inputTokens = 600;
+  const outputTokens = 60;
+  return {
+    category: guess.key,
+    categoryLabel: guess.label,
+    confidence: guess.confidence,
+    mode: 'dry-run',
+    usage: {
+      inputTokens,
+      cachedInputTokens: 0,
+      outputTokens,
+      costCents: computeCostCents({ model, inputTokens, cachedInputTokens: 0, outputTokens }),
+      model,
+    },
+  };
+}
+
+export async function classifyDocument(input: ClassifyInput): Promise<ClassifyResult> {
+  if (isDryRun) return classifyDryRun(input);
+  return classifyReal(input);
+}

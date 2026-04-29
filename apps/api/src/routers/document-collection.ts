@@ -313,4 +313,31 @@ export const documentCollectionRouter = router({
       const url = await signedUrl(u.r2Key, 3600);
       return { url, fileName: u.fileName, contentType: u.contentType };
     }),
+
+  // Phase 8.2 — manual re-classify. Used when the auto-classifier was
+  // wrong, was skipped (uploaded before AI was enabled), or the firm
+  // turned classifyAuto on later. Synchronous on purpose — staff click
+  // a button and want feedback.
+  reclassify: requirePermission('ai', 'write')
+    .input(z.object({ uploadId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const u = await ctx.prisma.documentUpload.findFirst({
+        where: { id: input.uploadId, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!u) throw new TRPCError({ code: 'NOT_FOUND' });
+      const { classifyUploadAsync } = await import('../lib/ai-classify.js');
+      await classifyUploadAsync(ctx.prisma, u.id);
+      const refreshed = await ctx.prisma.documentUpload.findUnique({
+        where: { id: u.id },
+        select: {
+          aiCategory: true,
+          aiCategoryLabel: true,
+          aiConfidence: true,
+          aiClassifiedAt: true,
+          aiClassifyMode: true,
+        },
+      });
+      return refreshed;
+    }),
 });
