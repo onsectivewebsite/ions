@@ -30,6 +30,7 @@ import {
   publicCollectionGetHandler,
   publicCollectionUploadHandler,
   publicCollectionSubmitHandler,
+  portalUploadHandler,
 } from './routes/document-upload.js';
 import { pdfTemplateUploadHandler } from './routes/pdf-template-upload.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
@@ -85,6 +86,9 @@ app.post('/api/v1/cases/:caseId/upload', fileBody, staffUploadHandler);
 app.get('/api/v1/dc/:token', publicCollectionGetHandler);
 app.post('/api/v1/dc/:token/upload', fileBody, publicCollectionUploadHandler);
 app.post('/api/v1/dc/:token/submit', express.json({ limit: '4kb' }), publicCollectionSubmitHandler);
+// Portal-authenticated upload — Phase 7.5. Same body shape as the public
+// path but JWT-gated (scope=client) and chained through the portal account.
+app.post('/api/v1/portal/cases/:caseId/upload', fileBody, portalUploadHandler);
 
 // PDF form template uploads — same raw-bytes pattern as documents.
 app.post('/api/v1/pdf-templates', fileBody, pdfTemplateUploadHandler);

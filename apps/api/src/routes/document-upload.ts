@@ -414,3 +414,145 @@ export async function publicCollectionSubmitHandler(req: Request, res: Response)
     missingRequired: missingRequired.map((m) => m.label),
   });
 }
+
+// ─── Portal-authenticated upload (Phase 7.5) ──────────────────────────────
+//
+// Same shape as staffUploadHandler / publicCollectionUploadHandler but the
+// auth is a portal-scope JWT (scope=client). Resolves the collection
+// through the case → portal-account → client chain so a client can never
+// upload to another client's case even by guessing UUIDs.
+export async function portalUploadHandler(req: Request, res: Response): Promise<void> {
+  const auth = req.header('authorization') ?? '';
+  if (!auth.startsWith('Bearer ')) {
+    res.status(401).json({ ok: false, error: 'Missing bearer token' });
+    return;
+  }
+  let claims;
+  try {
+    claims = await verifyAccessToken(auth.slice(7), env.JWT_ACCESS_SECRET);
+  } catch {
+    res.status(401).json({ ok: false, error: 'Invalid token' });
+    return;
+  }
+  if (claims.scope !== 'client' || !claims.tenantId) {
+    res.status(403).json({ ok: false, error: 'Client portal token required' });
+    return;
+  }
+
+  const account = await prisma.clientPortalAccount.findUnique({
+    where: { id: claims.sub },
+    select: { id: true, clientId: true, status: true, tenantId: true },
+  });
+  if (!account || account.status !== 'ACTIVE' || account.tenantId !== claims.tenantId) {
+    res.status(403).json({ ok: false, error: 'Account not active' });
+    return;
+  }
+
+  const meta = parseQuery(req);
+  if (!meta) {
+    res.status(400).json({ ok: false, error: 'itemKey + fileName required' });
+    return;
+  }
+  const caseId = String(req.params.caseId ?? '');
+  if (!caseId) {
+    res.status(400).json({ ok: false, error: 'caseId required' });
+    return;
+  }
+
+  const c = await prisma.case.findFirst({
+    where: {
+      id: caseId,
+      tenantId: account.tenantId,
+      clientId: account.clientId,
+      deletedAt: null,
+    },
+    select: { id: true },
+  });
+  if (!c) {
+    res.status(404).json({ ok: false, error: 'Case not found' });
+    return;
+  }
+
+  const collection = await prisma.documentCollection.findUnique({ where: { caseId } });
+  if (!collection) {
+    res.status(409).json({
+      ok: false,
+      error: 'Your firm has not requested any documents for this file yet.',
+    });
+    return;
+  }
+  if (collection.status === 'LOCKED') {
+    res.status(409).json({
+      ok: false,
+      error: 'Document submission is locked. Contact your firm to unlock if you need to update.',
+    });
+    return;
+  }
+
+  const items = (collection.itemsJson as unknown as ChecklistItem[]) ?? [];
+  const item = items.find((i) => i.key === meta.itemKey);
+  if (!item) {
+    res.status(400).json({ ok: false, error: `Unknown item key: ${meta.itemKey}` });
+    return;
+  }
+
+  const body = req.body as Buffer;
+  if (!body || body.length === 0) {
+    res.status(400).json({ ok: false, error: 'Empty body' });
+    return;
+  }
+  const violation = validateAgainstItem(meta, body, item);
+  if (violation) {
+    res.status(400).json({ ok: false, error: violation });
+    return;
+  }
+
+  // Look up client name for attribution stamp on the upload row.
+  const client = await prisma.client.findUnique({
+    where: { id: account.clientId },
+    select: { firstName: true, lastName: true },
+  });
+  const uploadedByName =
+    [client?.firstName, client?.lastName].filter(Boolean).join(' ') || null;
+
+  try {
+    const r = await persistUpload({
+      tenantId: account.tenantId,
+      caseId,
+      collectionId: collection.id,
+      itemKey: meta.itemKey,
+      fileName: meta.fileName,
+      contentType: meta.contentType,
+      body,
+      // Stash the portal-account id so staff can see exactly which signed-in
+      // client uploaded the file. Not a User row, so this lives in the audit
+      // payload (not the FK) — same convention as the Stripe webhook.
+      uploadedById: null,
+      uploadedByName,
+    });
+    await prisma.auditLog.create({
+      data: {
+        tenantId: account.tenantId,
+        actorId: '00000000-0000-0000-0000-000000000000',
+        actorType: 'CLIENT',
+        action: 'document.upload',
+        targetType: 'DocumentUpload',
+        targetId: r.id,
+        payload: {
+          caseId,
+          itemKey: meta.itemKey,
+          fileName: meta.fileName,
+          sizeBytes: r.sizeBytes,
+          source: 'portal',
+          clientPortalAccountId: account.id,
+        },
+        ip: req.ip ?? null,
+        userAgent: req.header('user-agent') ?? null,
+      },
+    });
+    res.status(201).json({ ok: true, ...r });
+  } catch (e) {
+    logger.error({ err: e, caseId, itemKey: meta.itemKey }, 'portal upload failed');
+    res.status(500).json({ ok: false, error: 'Upload failed' });
+  }
+}

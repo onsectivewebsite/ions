@@ -2,7 +2,7 @@
 import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Calendar, CheckCircle2, ClipboardCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Calendar, CheckCircle2, ClipboardCheck, FileText } from 'lucide-react';
 import {
   Badge,
   Card,
@@ -166,6 +166,28 @@ export default function PortalCaseDetailPage({ params }: { params: Promise<{ id:
               {c.irccDecision ? <Badge tone="success">Decision: {c.irccDecision}</Badge> : null}
             </div>
           </div>
+
+          <Link
+            href={`/portal/cases/${id}/documents`}
+            className="block"
+          >
+            <Card>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <FileText size={18} className="text-[var(--color-primary)]" />
+                  <div>
+                    <CardTitle>Documents</CardTitle>
+                    <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+                      {c.documentsLockedAt
+                        ? 'Submitted — click to review what you uploaded.'
+                        : 'Upload the documents your firm has requested.'}
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight size={14} className="text-[var(--color-text-muted)]" />
+              </div>
+            </Card>
+          </Link>
 
           <Card>
             <CardTitle>Progress</CardTitle>

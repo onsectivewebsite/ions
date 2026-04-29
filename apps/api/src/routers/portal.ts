@@ -30,6 +30,8 @@ import {
 } from '@onsecboad/stripe';
 import { getInvoicePdfSignedUrl } from '../lib/invoice-pdf-store.js';
 import { publishEvent } from '../lib/realtime.js';
+import { signedUrl as r2SignedUrl } from '@onsecboad/r2';
+import type { ChecklistItem } from '../lib/document-collection.js';
 import { router, publicProcedure, clientProcedure, firmProcedure } from '../trpc.js';
 import { logger } from '../logger.js';
 
@@ -652,6 +654,159 @@ export const portalRouter = router({
     });
     return { count };
   }),
+
+  // ─── Phase 7.5: Document collection (auth-gated, no token) ──────────
+
+  documentCollectionForCase: clientProcedure
+    .input(z.object({ caseId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      // Scope by clientId: client can only see DC on their own cases.
+      const c = await ctx.prisma.case.findFirst({
+        where: {
+          id: input.caseId,
+          tenantId: ctx.tenantId,
+          clientId: ctx.clientId,
+          deletedAt: null,
+        },
+        select: { id: true, caseType: true, status: true },
+      });
+      if (!c) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      const collection = await ctx.prisma.documentCollection.findUnique({
+        where: { caseId: c.id },
+      });
+      if (!collection) {
+        // Staff hasn't initialised the checklist yet — surface a friendly
+        // empty state rather than 404 so the UI can render "your firm
+        // hasn't requested any documents yet".
+        return {
+          case: c,
+          collection: null,
+          items: [] as ChecklistItem[],
+          uploads: [] as Array<{
+            id: string;
+            itemKey: string;
+            fileName: string;
+            sizeBytes: number;
+            createdAt: Date;
+          }>,
+        };
+      }
+
+      const uploads = await ctx.prisma.documentUpload.findMany({
+        where: { collectionId: collection.id, supersededAt: null },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          itemKey: true,
+          fileName: true,
+          sizeBytes: true,
+          createdAt: true,
+        },
+      });
+
+      return {
+        case: c,
+        collection: {
+          id: collection.id,
+          status: collection.status,
+          submittedAt: collection.submittedAt,
+          lockedAt: collection.lockedAt,
+          publicTokenExpiresAt: collection.publicTokenExpiresAt,
+        },
+        items: (collection.itemsJson as unknown as ChecklistItem[]) ?? [],
+        uploads,
+      };
+    }),
+
+  // 1-hour signed URL for a client-side document download. Re-checks
+  // ownership end-to-end before returning the link.
+  documentDownloadUrl: clientProcedure
+    .input(z.object({ uploadId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const u = await ctx.prisma.documentUpload.findFirst({
+        where: { id: input.uploadId, tenantId: ctx.tenantId },
+        select: { id: true, r2Key: true, fileName: true, caseId: true },
+      });
+      if (!u) throw new TRPCError({ code: 'NOT_FOUND' });
+      // DocumentUpload has no `case` relation declared; verify ownership
+      // via a separate Case lookup chained on clientId.
+      const ownsCase = await ctx.prisma.case.findFirst({
+        where: {
+          id: u.caseId,
+          tenantId: ctx.tenantId,
+          clientId: ctx.clientId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!ownsCase) throw new TRPCError({ code: 'NOT_FOUND' });
+      const url = await r2SignedUrl(u.r2Key);
+      return { url, fileName: u.fileName };
+    }),
+
+  // Auto-lock the collection: same effect as the public submit endpoint
+  // but auth-gated. Mirrors the documentCollection.send invariant — once
+  // submitted the collection is LOCKED and only Law Firm Admin or Branch
+  // Manager can unlock (per docs/01-domain.md).
+  submitDocuments: clientProcedure
+    .input(z.object({ caseId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const c = await ctx.prisma.case.findFirst({
+        where: {
+          id: input.caseId,
+          tenantId: ctx.tenantId,
+          clientId: ctx.clientId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!c) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      const collection = await ctx.prisma.documentCollection.findUnique({
+        where: { caseId: c.id },
+      });
+      if (!collection) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'No document request yet.' });
+      }
+      if (collection.status === 'LOCKED') {
+        return { ok: true, alreadyLocked: true };
+      }
+
+      const items = (collection.itemsJson as unknown as ChecklistItem[]) ?? [];
+      const uploads = await ctx.prisma.documentUpload.findMany({
+        where: { collectionId: collection.id, supersededAt: null },
+        select: { itemKey: true },
+      });
+      const uploadedKeys = new Set(uploads.map((u) => u.itemKey));
+      const missing = items.filter((it) => it.required && !uploadedKeys.has(it.key));
+
+      const now = new Date();
+      await ctx.prisma.documentCollection.update({
+        where: { id: collection.id },
+        data: { status: 'LOCKED', submittedAt: now, lockedAt: now },
+      });
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          // Portal client doesn't have a User row; use SYSTEM placeholder
+          // and stash the portal account id in the payload.
+          actorId: '00000000-0000-0000-0000-000000000000',
+          actorType: 'CLIENT',
+          action: 'documentCollection.portalSubmit',
+          targetType: 'DocumentCollection',
+          targetId: collection.id,
+          payload: {
+            caseId: c.id,
+            clientPortalAccountId: ctx.session.sub,
+            missingRequired: missing.map((m) => m.key),
+          },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+      return { ok: true, missingRequired: missing.map((m) => ({ key: m.key, label: m.label })) };
+    }),
 });
 
 // ─── Firm-scoped: invite-to-portal mutation (lives here for cohesion) ────
