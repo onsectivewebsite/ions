@@ -41,7 +41,7 @@ FROM node:20-alpine AS runtime
 RUN apk add --no-cache tini
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=4001
 
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001 -G nodejs
 
@@ -51,7 +51,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 
 USER nextjs
-EXPOSE 3000
+EXPOSE 4001
 
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "apps/web/server.js"]

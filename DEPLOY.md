@@ -52,7 +52,7 @@ Log in to CloudPanel (default `https://YOUR_VPS_IP:8443`).
 **Site 1: `onsective.cloud` (the web app)**
 - Sites → Add Site → **Reverse Proxy**
 - Domain: `onsective.cloud` (also add `www.onsective.cloud` if you set that up)
-- Reverse Proxy URL: `http://127.0.0.1:3000`
+- Reverse Proxy URL: `http://127.0.0.1:4001`
 - Save
 
 **Site 2: `api.onsective.cloud` (the API)**
@@ -178,5 +178,5 @@ CloudPanel's nginx access/error logs:
 - **Cloudflare orange-cloud breaks Let's Encrypt** — keep DNS-only until the cert is issued.
 - **Mismatched WEBAUTHN_RP_ID** — must be exactly `onsective.cloud` (no protocol, no port). Passkeys silently fail otherwise.
 - **`SMTP_PASSWORD` placeholder** — emails fail with `535 5.7.8`. Set the real Hostinger mailbox password.
-- **Compose port already in use on 3000/4000** — make sure no other dev process is running on the VPS. `lsof -ti:3000,4000`.
+- **Compose port already in use on 4000/4001** — make sure no other dev process is running on the VPS. `lsof -ti:4000,4001`.
 - **Prisma binary mismatch** — the schema's `binaryTargets` already covers `linux-musl-openssl-3.0.x`. If you swap to a non-Alpine base image, regenerate the client.

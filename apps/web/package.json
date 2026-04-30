@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev -p 4001",
     "build": "next build",
-    "start": "next start -p 3000",
+    "start": "next start -p 4001",
     "lint": "next lint --max-warnings 0",
     "typecheck": "tsc --noEmit"
   },

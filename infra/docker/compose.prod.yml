@@ -5,10 +5,10 @@
 # so nothing is reachable from the internet except via CloudPanel's nginx.
 #
 # CloudPanel sites you'll create after `docker compose up -d`:
-#   1. onsective.cloud      → Reverse Proxy → http://127.0.0.1:18080
-#   2. api.onsective.cloud  → Reverse Proxy → http://127.0.0.1:18081
-# Uncommon ports — most CloudPanel + Hostinger host services clash with
-# 3000–9000 and even 13000–14000.
+#   1. onsective.cloud      → Reverse Proxy → http://127.0.0.1:4001
+#   2. api.onsective.cloud  → Reverse Proxy → http://127.0.0.1:4000
+# 4000-range chosen so the operator can run other dev-style projects on
+# the same box (3000 is commonly clobbered by Next.js scratchpads).
 # Both get a free Let's Encrypt cert from the panel's "Certificates" tab.
 #
 # Usage on the VPS:
@@ -101,10 +101,11 @@ services:
       ENABLE_CRON: ${ENABLE_CRON:-true}
       CRON_SEAT_RECONCILE: ${CRON_SEAT_RECONCILE:-0 2 * * *}
       SEED_DEMO_TENANT: ${SEED_DEMO_TENANT:-false}
-    # Loopback only. Port 18081 chosen to avoid clashes with CloudPanel and
-    # any host monitoring agents in the lower ranges.
+    # Loopback only. Bind 127.0.0.1:4000 directly so CloudPanel's reverse
+    # proxy (api.onsective.cloud) points at the same port the API listens
+    # on inside the container — no port translation needed.
     ports:
-      - '127.0.0.1:18081:4000'
+      - '127.0.0.1:4000:4000'
     healthcheck:
       test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://localhost:4000/api/health']
       interval: 30s
@@ -125,10 +126,10 @@ services:
       api: { condition: service_healthy }
     environment:
       NODE_ENV: production
-      PORT: '3000'
+      PORT: '4001'
       HOSTNAME: '0.0.0.0'
     ports:
-      - '127.0.0.1:18080:3000'
+      - '127.0.0.1:4001:4001'
 
 volumes:
   onsec-pgdata:

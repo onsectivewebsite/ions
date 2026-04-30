@@ -50,14 +50,14 @@ Prereqs: **Node 20+**, **pnpm 9** (auto-installed via corepack), **Docker** (for
 
 ```bash
 ./scripts/setup.sh   # idempotent — safe to re-run
-pnpm dev             # turbo runs api (:4000) + web (:3000) in parallel
+pnpm dev             # turbo runs api (:4000) + web (:4001) in parallel
 ```
 
 The setup script: installs deps, starts Postgres (`:5433`) + Redis (`:6379`), creates `.env` from the example if missing (and only if missing — never clobbers), auto-fills dev JWT/encryption secrets, runs Prisma generate + migrate + seed, and links `packages/db/.env → ../../.env` so `prisma` works from any cwd.
 
 To run the steps manually instead, see `scripts/setup.sh`.
 
-Visit http://localhost:3000/sign-in.
+Visit http://localhost:4001/sign-in.
 
 ### Seeded credentials
 
