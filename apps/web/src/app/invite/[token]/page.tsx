@@ -1,12 +1,11 @@
 'use client';
 import { useEffect, useState, use, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Eye, EyeOff, Lock, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 import {
   Badge,
   Button,
   Card,
-  Input,
   Label,
   Spinner,
   ThemeProvider,
@@ -15,6 +14,11 @@ import {
 import { rpcMutation, rpcQuery } from '../../../lib/api';
 import { setAccessToken } from '../../../lib/session';
 import { Logo } from '../../../components/Logo';
+import {
+  PasswordField,
+  PasswordStrengthMeter,
+  checkPassword,
+} from '../../../components/PasswordField';
 
 type PreviewResp = {
   firmName: string;
@@ -39,7 +43,6 @@ export default function InviteAcceptPage({ params }: { params: Promise<{ token: 
   const [step, setStep] = useState<1 | 2>(1);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,11 +52,13 @@ export default function InviteAcceptPage({ params }: { params: Promise<{ token: 
       .catch((e) => setPreviewError(e instanceof Error ? e.message : 'Invalid invite'));
   }, [token]);
 
+  const policy = checkPassword(password);
+
   async function submit(e: FormEvent): Promise<void> {
     e.preventDefault();
     setError(null);
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+    if (!policy.meetsPolicy) {
+      setError('Password must be 8+ chars with upper, lower, and a digit.');
       return;
     }
     if (password !== confirm) {
@@ -64,8 +69,9 @@ export default function InviteAcceptPage({ params }: { params: Promise<{ token: 
     try {
       const r = await rpcMutation<AcceptResp>('invite.accept', { token, password });
       setAccessToken(r.accessToken);
-      // Land on dashboard. /settings/security is one click away to enroll TOTP.
-      router.push('/dashboard');
+      // Show the 2FA prompt before dropping them into the dashboard. Page is
+      // skippable so it never blocks the user.
+      router.push('/onboarding/secure');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Accept failed');
     } finally {
@@ -144,62 +150,46 @@ export default function InviteAcceptPage({ params }: { params: Promise<{ token: 
                 <div>
                   <h1 className="text-xl font-semibold tracking-tight">Choose a password</h1>
                   <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-                    8 characters minimum. You&apos;ll use this to sign in.
+                    You&apos;ll use this to sign in.
                   </p>
                 </div>
                 <div>
-                  <div className="mb-1 flex items-center justify-between">
-                    <Label htmlFor="pw">Password</Label>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                      onClick={() => setShowPw((s) => !s)}
-                    >
-                      {showPw ? <EyeOff size={12} /> : <Eye size={12} />}
-                      {showPw ? 'Hide' : 'Show'}
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <Lock
-                      size={14}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]"
-                    />
-                    <Input
+                  <Label htmlFor="pw">Password</Label>
+                  <div className="mt-1">
+                    <PasswordField
                       id="pw"
-                      type={showPw ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       autoComplete="new-password"
                       autoFocus
                       placeholder="••••••••"
-                      className="pl-9"
                     />
                   </div>
+                  <PasswordStrengthMeter password={password} />
                 </div>
                 <div>
                   <Label htmlFor="cf">Confirm password</Label>
-                  <div className="relative mt-1">
-                    <Lock
-                      size={14}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]"
-                    />
-                    <Input
+                  <div className="mt-1">
+                    <PasswordField
                       id="cf"
-                      type={showPw ? 'text' : 'password'}
                       value={confirm}
                       onChange={(e) => setConfirm(e.target.value)}
                       autoComplete="new-password"
                       placeholder="••••••••"
-                      className="pl-9"
                     />
                   </div>
+                  {confirm && confirm !== password ? (
+                    <div className="mt-1 text-[11px] text-[var(--color-danger)]">
+                      Doesn&rsquo;t match.
+                    </div>
+                  ) : null}
                 </div>
                 {error ? (
                   <div className="rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] p-3 text-sm text-[var(--color-danger)]">
                     {error}
                   </div>
                 ) : null}
-                <Button type="submit" disabled={busy || password.length < 8 || password !== confirm} className="w-full">
+                <Button type="submit" disabled={busy || !policy.meetsPolicy || password !== confirm} className="w-full">
                   {busy ? <Spinner /> : <ShieldCheck size={14} />}
                   Activate account
                 </Button>

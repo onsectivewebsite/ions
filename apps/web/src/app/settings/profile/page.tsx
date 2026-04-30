@@ -1,0 +1,209 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Check, ShieldCheck, User } from 'lucide-react';
+import {
+  Button,
+  Card,
+  CardBody,
+  CardTitle,
+  Skeleton,
+  ThemeProvider,
+  type Branding,
+} from '@onsecboad/ui';
+import { rpcMutation, rpcQuery } from '../../../lib/api';
+import { getAccessToken } from '../../../lib/session';
+import { AppShell, type ShellUser } from '../../../components/AppShell';
+import {
+  PasswordField,
+  PasswordStrengthMeter,
+  checkPassword,
+} from '../../../components/PasswordField';
+
+type Me = {
+  kind: 'firm' | 'platform';
+  name: string;
+  email: string;
+  tenant: { displayName: string; branding: Branding };
+};
+
+export default function ProfilePage() {
+  const router = useRouter();
+  const [me, setMe] = useState<Me | null>(null);
+
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!token) {
+      router.replace('/sign-in');
+      return;
+    }
+    rpcQuery<Me>('user.me', undefined, { token })
+      .then(setMe)
+      .catch(() => router.replace('/sign-in'));
+  }, [router]);
+
+  async function submit(): Promise<void> {
+    setErr(null);
+    setDone(false);
+    if (next !== confirm) {
+      setErr('Confirmation does not match the new password.');
+      return;
+    }
+    const policy = checkPassword(next);
+    if (!policy.meetsPolicy) {
+      setErr('New password must be 8+ chars with upper, lower, and a digit.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      await rpcMutation(
+        'auth.changePassword',
+        { currentPassword: current, newPassword: next },
+        { token },
+      );
+      setDone(true);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to change password');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!me) {
+    return (
+      <main className="grid min-h-screen grid-cols-[240px_1fr]">
+        <div className="border-r border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <Skeleton className="h-6 w-32" />
+        </div>
+        <div className="space-y-4 p-8">
+          <Skeleton className="h-32" />
+          <Skeleton className="h-64" />
+        </div>
+      </main>
+    );
+  }
+
+  const branding = me.tenant?.branding ?? { themeCode: 'maple' };
+  const shellUser: ShellUser = {
+    name: me.name,
+    email: me.email,
+    scope: me.kind === 'platform' ? 'platform' : 'firm',
+    contextLabel: me.tenant?.displayName ?? 'Onsective',
+  };
+
+  return (
+    <ThemeProvider branding={branding}>
+      <AppShell user={shellUser}>
+        <div className="space-y-6">
+          <div>
+            <div className="text-xs text-[var(--color-text-muted)]">Settings</div>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight">Profile</h1>
+            <p className="mt-1 text-sm text-[var(--color-text-muted)]">
+              Update your account details and password.
+            </p>
+          </div>
+
+          <Card>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-pill)] bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]">
+                <User size={16} />
+              </div>
+              <div>
+                <CardTitle>Account</CardTitle>
+                <CardBody className="mt-1 text-xs text-[var(--color-text-muted)]">
+                  Signed in as <span className="font-mono">{me.email}</span>
+                </CardBody>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <CardTitle>Change password</CardTitle>
+            <CardBody className="mt-1 text-xs text-[var(--color-text-muted)]">
+              Other active sessions stay signed in. We&rsquo;ll email you a confirmation.
+            </CardBody>
+            <div className="mt-4 space-y-3 max-w-md">
+              <label className="block text-xs">
+                <div className="mb-1 text-[var(--color-text-muted)]">Current password</div>
+                <PasswordField
+                  value={current}
+                  onChange={(e) => setCurrent(e.target.value)}
+                  autoComplete="current-password"
+                  placeholder="Your current password"
+                />
+              </label>
+              <label className="block text-xs">
+                <div className="mb-1 text-[var(--color-text-muted)]">New password</div>
+                <PasswordField
+                  value={next}
+                  onChange={(e) => setNext(e.target.value)}
+                  autoComplete="new-password"
+                  placeholder="New password"
+                />
+                <PasswordStrengthMeter password={next} />
+              </label>
+              <label className="block text-xs">
+                <div className="mb-1 text-[var(--color-text-muted)]">Confirm new password</div>
+                <PasswordField
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  autoComplete="new-password"
+                  placeholder="Re-type the new password"
+                />
+                {confirm && next !== confirm ? (
+                  <div className="mt-1 text-[11px] text-[var(--color-danger)]">
+                    Doesn&rsquo;t match.
+                  </div>
+                ) : null}
+              </label>
+              {err ? <div className="text-xs text-[var(--color-danger)]">{err}</div> : null}
+              {done ? (
+                <div className="inline-flex items-center gap-1 text-xs text-[var(--color-success)]">
+                  <Check size={12} />
+                  Password updated.
+                </div>
+              ) : null}
+              <div className="flex justify-end">
+                <Button
+                  onClick={submit}
+                  disabled={busy || !current || !next || !confirm}
+                >
+                  {busy ? 'Saving…' : 'Update password'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Two-factor authentication</CardTitle>
+                <CardBody className="mt-1 text-xs text-[var(--color-text-muted)]">
+                  Manage authenticator app + passkeys.
+                </CardBody>
+              </div>
+              <a
+                href="/settings/security"
+                className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs hover:bg-[var(--color-surface-muted)]"
+              >
+                <ShieldCheck size={12} />
+                Open security settings
+              </a>
+            </div>
+          </Card>
+        </div>
+      </AppShell>
+    </ThemeProvider>
+  );
+}

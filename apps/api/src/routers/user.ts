@@ -533,6 +533,48 @@ export const userRouter = router({
       return { ok: true };
     }),
 
+  /**
+   * Admin reset of a user's 2FA. Wipes the TOTP secret AND deletes every
+   * passkey. The user must re-enroll on next sign-in. Used when a user
+   * loses their authenticator device.
+   *
+   * Requires users.write since it's effectively credential admin. Audit
+   * logs the action; the affected user will get a security email when
+   * they next sign in (and email-OTP is the only remaining factor).
+   */
+  resetTwoFactor: requirePermission('users', 'write')
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const u = await ctx.prisma.user.findFirst({
+        where: { id: input.id, tenantId: ctx.tenantId, deletedAt: null },
+      });
+      if (!u) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (ctx.scope === 'branch' && u.branchId !== ctx.perms.branchId) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Out of branch scope' });
+      }
+      const [, deletedKeys] = await Promise.all([
+        ctx.prisma.user.update({
+          where: { id: u.id },
+          data: { twoFASecret: null },
+        }),
+        ctx.prisma.passkey.deleteMany({ where: { userId: u.id } }),
+      ]);
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'USER',
+          action: 'user.2fa.reset',
+          targetType: 'User',
+          targetId: u.id,
+          payload: { passkeysRemoved: deletedKeys.count },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+      return { ok: true, passkeysRemoved: deletedKeys.count };
+    }),
+
   delete: requirePermission('users', 'delete')
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {

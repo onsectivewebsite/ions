@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  ShieldOff,
   Trash2,
   UserCog,
   Users as UsersIcon,
@@ -730,6 +731,25 @@ function ManageUserDialog({
                 <RefreshCw size={12} /> Resend invite
               </Button>
             ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                if (
+                  !confirm(
+                    `Reset 2FA for ${user.name}? Their authenticator app + every passkey will be wiped. They'll need to re-enroll on next sign-in.`,
+                  )
+                )
+                  return;
+                void run('2FA reset.', async () => {
+                  const token = getAccessToken();
+                  return rpcMutation('user.resetTwoFactor', { id: user.id }, { token });
+                });
+              }}
+            >
+              <ShieldOff size={12} /> Reset 2FA
+            </Button>
             <div className="ml-auto flex items-center gap-2">
               <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
                 Close

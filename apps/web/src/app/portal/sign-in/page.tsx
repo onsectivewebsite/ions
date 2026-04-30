@@ -3,10 +3,11 @@ import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { LogIn, ShieldCheck } from 'lucide-react';
-import { Button, Card, CardTitle, Input, Label, Spinner } from '@onsecboad/ui';
+import { Button, Card, Input, Label, Spinner } from '@onsecboad/ui';
 import { rpcMutation } from '../../../lib/api';
 import { setPortalToken } from '../../../lib/portal-session';
 import { Logo } from '../../../components/Logo';
+import { PasswordField } from '../../../components/PasswordField';
 
 export default function PortalSignInPage() {
   const router = useRouter();
@@ -50,12 +51,14 @@ export default function PortalSignInPage() {
           </div>
           <div>
             <Label>Password</Label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="mt-1">
+              <PasswordField
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </div>
           </div>
           {error ? (
             <div className="rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] p-2 text-xs text-[var(--color-danger)]">

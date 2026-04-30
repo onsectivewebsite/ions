@@ -1,10 +1,15 @@
 'use client';
 import { Suspense, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Eye, EyeOff, Lock, ShieldCheck } from 'lucide-react';
-import { Button, Card, Input, Label, Spinner } from '@onsecboad/ui';
+import { ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Button, Card, Label, Spinner } from '@onsecboad/ui';
 import { rpcMutation } from '../../lib/api';
 import { Logo } from '../../components/Logo';
+import {
+  PasswordField,
+  PasswordStrengthMeter,
+  checkPassword,
+} from '../../components/PasswordField';
 
 function ResetInner() {
   const router = useRouter();
@@ -13,19 +18,18 @@ function ResetInner() {
 
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const tooShort = password.length > 0 && password.length < 8;
+  const policy = checkPassword(password);
   const mismatch = confirm.length > 0 && password !== confirm;
 
   async function onSubmit(e: FormEvent): Promise<void> {
     e.preventDefault();
     setError(null);
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+    if (!policy.meetsPolicy) {
+      setError('Password must be 8+ chars with upper, lower, and a digit.');
       return;
     }
     if (password !== confirm) {
@@ -97,25 +101,10 @@ function ResetInner() {
           ) : (
             <form onSubmit={onSubmit} className="mt-6 space-y-4">
               <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <Label htmlFor="password">New password</Label>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                    onClick={() => setShowPw((s) => !s)}
-                  >
-                    {showPw ? <EyeOff size={12} /> : <Eye size={12} />}
-                    {showPw ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-                <div className="relative">
-                  <Lock
-                    size={14}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]"
-                  />
-                  <Input
+                <Label htmlFor="password">New password</Label>
+                <div className="mt-1">
+                  <PasswordField
                     id="password"
-                    type={showPw ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -123,32 +112,21 @@ function ResetInner() {
                     autoComplete="new-password"
                     autoFocus
                     placeholder="••••••••"
-                    className="pl-9"
                   />
                 </div>
-                {tooShort ? (
-                  <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                    {8 - password.length} more character{8 - password.length === 1 ? '' : 's'} needed
-                  </p>
-                ) : null}
+                <PasswordStrengthMeter password={password} />
               </div>
 
               <div>
                 <Label htmlFor="confirm">Confirm new password</Label>
-                <div className="relative mt-1">
-                  <Lock
-                    size={14}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]"
-                  />
-                  <Input
+                <div className="mt-1">
+                  <PasswordField
                     id="confirm"
-                    type={showPw ? 'text' : 'password'}
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
                     required
                     autoComplete="new-password"
                     placeholder="••••••••"
-                    className="pl-9"
                   />
                 </div>
                 {mismatch ? (
@@ -164,7 +142,7 @@ function ResetInner() {
 
               <Button
                 type="submit"
-                disabled={loading || password.length < 8 || password !== confirm}
+                disabled={loading || !policy.meetsPolicy || password !== confirm}
                 className="w-full"
               >
                 {loading ? <Spinner /> : null}

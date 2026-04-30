@@ -1,7 +1,7 @@
 'use client';
 import { Suspense, useEffect, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles } from 'lucide-react';
 import {
   Button,
   Card,
@@ -14,6 +14,11 @@ import {
 } from '@onsecboad/ui';
 import { rpcMutation, rpcQuery } from '../../lib/api';
 import { Logo } from '../../components/Logo';
+import {
+  PasswordField,
+  PasswordStrengthMeter,
+  checkPassword,
+} from '../../components/PasswordField';
 
 type VerifyResp = {
   firmName: string;
@@ -37,7 +42,7 @@ function SetupInner() {
   // Step 1: password
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [showPw, setShowPw] = useState(false);
+  const policy = checkPassword(password);
 
   // Step 2: branding
   const [branding, setBranding] = useState<Branding>({ themeCode: 'maple' });
@@ -63,8 +68,8 @@ function SetupInner() {
   function next(): void {
     setError(null);
     if (step === 1) {
-      if (password.length < 8) {
-        setError('Password must be at least 8 characters.');
+      if (!policy.meetsPolicy) {
+        setError('Password must be 8+ chars with upper, lower, and a digit.');
         return;
       }
       if (password !== confirm) {
@@ -165,51 +170,35 @@ function SetupInner() {
             {step === 1 ? (
               <div className="space-y-4">
                 <div>
-                  <div className="mb-1 flex items-center justify-between">
-                    <Label htmlFor="pw">New password</Label>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                      onClick={() => setShowPw((s) => !s)}
-                    >
-                      {showPw ? <EyeOff size={12} /> : <Eye size={12} />}
-                      {showPw ? 'Hide' : 'Show'}
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <Lock
-                      size={14}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]"
-                    />
-                    <Input
+                  <Label htmlFor="pw">New password</Label>
+                  <div className="mt-1">
+                    <PasswordField
                       id="pw"
-                      type={showPw ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       autoComplete="new-password"
                       autoFocus
                       placeholder="••••••••"
-                      className="pl-9"
                     />
                   </div>
+                  <PasswordStrengthMeter password={password} />
                 </div>
                 <div>
                   <Label htmlFor="cf">Confirm password</Label>
-                  <div className="relative mt-1">
-                    <Lock
-                      size={14}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]"
-                    />
-                    <Input
+                  <div className="mt-1">
+                    <PasswordField
                       id="cf"
-                      type={showPw ? 'text' : 'password'}
                       value={confirm}
                       onChange={(e) => setConfirm(e.target.value)}
                       autoComplete="new-password"
                       placeholder="••••••••"
-                      className="pl-9"
                     />
                   </div>
+                  {confirm && confirm !== password ? (
+                    <div className="mt-1 text-[11px] text-[var(--color-danger)]">
+                      Doesn&rsquo;t match.
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}

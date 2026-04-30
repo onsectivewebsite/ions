@@ -804,6 +804,77 @@ export const authRouter = router({
       return { ok: true };
     }),
 
+  /**
+   * Authenticated in-app password change. Verifies the current password
+   * before swapping the hash. Does NOT revoke other sessions — that's
+   * different from a forced reset. Fires a security-event email so the
+   * user notices any unauthorized change.
+   */
+  changePassword: protectedProcedure
+    .input(
+      z.object({
+        currentPassword: z.string().min(1),
+        newPassword: z.string().min(8).max(200),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.currentPassword === input.newPassword) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'New password must differ from the current one.',
+        });
+      }
+      const isPlatform = ctx.session.scope === 'platform';
+      const userId = ctx.session.sub;
+      const user = isPlatform
+        ? await ctx.prisma.platformUser.findUnique({ where: { id: userId } })
+        : await ctx.prisma.user.findUnique({ where: { id: userId } });
+      if (!user || !user.passwordHash) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+      const ok = await verifyPassword(user.passwordHash, input.currentPassword);
+      if (!ok) {
+        throw new TRPCError({
+          code: 'UNAUTHORIZED',
+          message: 'Current password is incorrect.',
+        });
+      }
+      const newHash = await hashPassword(input.newPassword);
+      if (isPlatform) {
+        await ctx.prisma.platformUser.update({
+          where: { id: userId },
+          data: { passwordHash: newHash },
+        });
+      } else {
+        await ctx.prisma.user.update({
+          where: { id: userId },
+          data: { passwordHash: newHash },
+        });
+      }
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.session.scope === 'firm' ? (ctx.session.tenantId ?? null) : null,
+          actorId: userId,
+          actorType: isPlatform ? 'PLATFORM' : 'USER',
+          action: 'auth.password.change',
+          targetType: isPlatform ? 'PlatformUser' : 'User',
+          targetId: userId,
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+      const recipient = isPlatform
+        ? await recipientForPlatform(ctx.prisma, userId)
+        : await recipientForFirmUser(ctx.prisma, userId);
+      if (recipient) {
+        await fireSecurityEvent(recipient, 'password_changed', {
+          ip: ctx.ip,
+          userAgent: ctx.userAgent,
+        });
+      }
+      return { ok: true };
+    }),
+
   // Used only by ops to seed a password without going through invite flow (Phase 0).
   _devSetPassword: publicProcedure
     .input(z.object({ email: z.string().email(), password: z.string().min(8) }))

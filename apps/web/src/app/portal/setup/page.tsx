@@ -2,10 +2,15 @@
 import { Suspense, useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle2, KeyRound } from 'lucide-react';
-import { Button, Card, CardTitle, Input, Label, Skeleton, Spinner, ThemeProvider, type Branding } from '@onsecboad/ui';
+import { Button, Card, Input, Label, Skeleton, Spinner, ThemeProvider, type Branding } from '@onsecboad/ui';
 import { rpcMutation, rpcQuery } from '../../../lib/api';
 import { setPortalToken } from '../../../lib/portal-session';
 import { Logo } from '../../../components/Logo';
+import {
+  PasswordField,
+  PasswordStrengthMeter,
+  checkPassword,
+} from '../../../components/PasswordField';
 
 type Preview = {
   email: string;
@@ -107,22 +112,28 @@ function PortalSetupInner() {
         <Card>
           <form onSubmit={submit} className="space-y-4">
             <div>
-              <Label>Password (min 8 characters)</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={8}
-              />
+              <Label>Password</Label>
+              <div className="mt-1">
+                <PasswordField
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  autoComplete="new-password"
+                />
+              </div>
+              <PasswordStrengthMeter password={password} />
             </div>
             {error ? (
               <div className="rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] p-2 text-xs text-[var(--color-danger)]">
                 {error}
               </div>
             ) : null}
-            <Button type="submit" disabled={busy || password.length < 8} className="w-full">
+            <Button
+              type="submit"
+              disabled={busy || !checkPassword(password).meetsPolicy}
+              className="w-full"
+            >
               {busy ? <Spinner /> : <KeyRound size={14} />} Set password &amp; continue
             </Button>
           </form>

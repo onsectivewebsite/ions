@@ -8,7 +8,8 @@ export type SecurityEventKind =
   | 'unauthorized_login'
   | 'password_reset_requested'
   | 'password_reset_completed'
-  | 'password_reset_unknown_account';
+  | 'password_reset_unknown_account'
+  | 'password_changed';
 
 type Context = {
   ip?: string | null;
@@ -86,6 +87,12 @@ function copy(kind: SecurityEventKind, ctx: Context, productName: string): Copy 
         subject: `Password reset attempt on ${productName}`,
         heading: 'Password reset attempt',
         body: `<p style="margin:0;font-size:14px;">Someone tried to reset the password for an account at <span style="font-family:monospace">${escapeHtml(ctx.email ?? '')}</span>, but no such account exists on ${escapeHtml(productName)}.</p>${where}<p style="margin:16px 0 0 0;font-size:13px;color:#6B7280;">You are receiving this because the address is on file with us in another context (e.g. previous tenancy). No action is needed.</p>`,
+      };
+    case 'password_changed':
+      return {
+        subject: `Your ${productName} password was changed`,
+        heading: 'Password changed',
+        body: `<p style="margin:0;font-size:14px;">Your password was just changed from inside the app.</p>${where}<p style="margin:16px 0 0 0;font-size:13px;color:#6B7280;">If you did not do this, change your password again immediately and contact your firm admin — your account may be compromised.</p>`,
       };
   }
 }
