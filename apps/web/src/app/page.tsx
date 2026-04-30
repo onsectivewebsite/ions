@@ -19,6 +19,12 @@ export default function HomePage() {
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <Logo />
         <div className="flex items-center gap-2">
+          <Link
+            href="/pricing"
+            className="hidden text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] sm:block"
+          >
+            Pricing
+          </Link>
           <Link href="/sign-in" className="hidden sm:block">
             <Button size="sm" variant="ghost">
               Sign in
@@ -56,9 +62,9 @@ export default function HomePage() {
               <ArrowRight size={16} />
             </Button>
           </Link>
-          <Link href="/sign-in">
+          <Link href="/demo">
             <Button size="lg" variant="secondary">
-              Sign in
+              See it in action
             </Button>
           </Link>
         </div>

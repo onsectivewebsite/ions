@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Activity, BarChart3, MessageSquare, Phone, TrendingUp, Users } from 'lucide-react';
+import { Activity, BarChart3, Download, MessageSquare, Phone, TrendingUp, Users } from 'lucide-react';
 import {
   Card,
   CardTitle,
@@ -117,7 +117,7 @@ export default function ReportsPage() {
     <ThemeProvider branding={branding}>
       <AppShell user={shellUser}>
         <div className="space-y-6">
-          <div className="flex items-end justify-between">
+          <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <div className="text-xs text-[var(--color-text-muted)]">Reports</div>
               <h1 className="mt-1 text-2xl font-semibold tracking-tight">KPI dashboard</h1>
@@ -125,21 +125,32 @@ export default function ReportsPage() {
                 Lead, call, and conversion metrics over the selected window.
               </p>
             </div>
-            <div className="flex items-center gap-2 rounded-[var(--radius-pill)] border border-[var(--color-border)] p-1 text-xs">
-              {RANGES.map((r) => (
-                <button
-                  key={r.key}
-                  onClick={() => setRangeKey(r.key)}
-                  className={
-                    'rounded-[var(--radius-pill)] px-3 py-1 ' +
-                    (rangeKey === r.key
-                      ? 'bg-[var(--color-primary)] text-white'
-                      : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]')
-                  }
-                >
-                  {r.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={!data}
+                onClick={() => exportReportCsv(data, RANGES.find((r) => r.key === rangeKey)!.label)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-xs font-medium hover:bg-[var(--color-surface-muted)] disabled:opacity-40"
+              >
+                <Download size={12} />
+                Export CSV
+              </button>
+              <div className="flex items-center gap-2 rounded-[var(--radius-pill)] border border-[var(--color-border)] p-1 text-xs">
+                {RANGES.map((r) => (
+                  <button
+                    key={r.key}
+                    onClick={() => setRangeKey(r.key)}
+                    className={
+                      'rounded-[var(--radius-pill)] px-3 py-1 ' +
+                      (rangeKey === r.key
+                        ? 'bg-[var(--color-primary)] text-white'
+                        : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]')
+                    }
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -280,4 +291,56 @@ function fmtDuration(sec: number): string {
   if (m < 60) return `${m}m ${s}s`;
   const h = Math.floor(m / 60);
   return `${h}h ${m % 60}m`;
+}
+
+function csvEscape(v: unknown): string {
+  const s = v === null || v === undefined ? '' : String(v);
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function exportReportCsv(data: KpiSummary | null, rangeLabel: string): void {
+  if (!data || typeof window === 'undefined') return;
+  const lines: string[] = [];
+  lines.push(`# OnsecBoad report — ${rangeLabel}`);
+  lines.push(`# Range: ${data.range.from} → ${data.range.to}`);
+  lines.push('');
+  lines.push('Section,Metric,Value');
+  lines.push(`Headline,Leads total,${data.leads.total}`);
+  lines.push(`Headline,Leads converted,${data.leads.converted}`);
+  lines.push(`Headline,Conversion rate,${(data.leads.conversionRate * 100).toFixed(2)}%`);
+  lines.push(`Headline,Calls total,${data.calls.total}`);
+  lines.push(`Headline,Calls completed,${data.calls.completed}`);
+  lines.push(`Headline,Answer rate,${(data.calls.answerRate * 100).toFixed(2)}%`);
+  lines.push(`Headline,SMS total,${data.sms.total}`);
+  lines.push(`Headline,SMS inbound,${data.sms.inbound}`);
+  lines.push('');
+  lines.push('Leads by source,Source,Count');
+  for (const r of data.leads.bySource) {
+    lines.push(`Leads by source,${csvEscape(r.source)},${r.count}`);
+  }
+  lines.push('');
+  lines.push('Leads by status,Status,Count');
+  for (const r of data.leads.byStatus) {
+    lines.push(`Leads by status,${csvEscape(r.status)},${r.count}`);
+  }
+  lines.push('');
+  lines.push('Per-agent activity,Agent,Calls,Talk seconds,Conversions');
+  for (const a of data.perAgent) {
+    lines.push(
+      `Per-agent activity,${csvEscape(a.agentName)},${a.calls},${a.totalDurationSec},${a.conversions}`,
+    );
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const filename = `onsecboad-report-${rangeLabel.replace(/\s+/g, '')}-${new Date().toISOString().slice(0, 10)}.csv`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
 }
