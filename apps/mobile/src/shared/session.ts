@@ -1,9 +1,10 @@
 /**
- * SecureStore-backed session for the mobile staff app.
+ * SecureStore-backed sessions for the mobile apps.
  *
- * Uses two keys:
- *   onsec_staff_at — firm-scope access token (matches the web side's
- *                    `onsec_at` localStorage key, but namespaced for mobile)
+ * Two namespaces, kept separate so a single device that's signed in to
+ * both the staff and client apps doesn't have its tokens trampled:
+ *   onsec_staff_at  — firm-scope access token (staff app)
+ *   onsec_client_at — client-portal access token (client app)
  *
  * SecureStore is the right primitive on mobile: hardware-backed on iOS
  * (Keychain) and Android (EncryptedSharedPreferences). The web side uses
@@ -12,21 +13,27 @@
 import * as SecureStore from 'expo-secure-store';
 
 const STAFF_TOKEN_KEY = 'onsec_staff_at';
+const CLIENT_TOKEN_KEY = 'onsec_client_at';
 
-export async function getStaffToken(): Promise<string | null> {
+async function getToken(key: string): Promise<string | null> {
   try {
-    return (await SecureStore.getItemAsync(STAFF_TOKEN_KEY)) ?? null;
+    return (await SecureStore.getItemAsync(key)) ?? null;
   } catch {
     return null;
   }
 }
 
-export async function setStaffToken(token: string | null): Promise<void> {
+async function setToken(key: string, token: string | null): Promise<void> {
   if (token == null) {
-    await SecureStore.deleteItemAsync(STAFF_TOKEN_KEY);
+    await SecureStore.deleteItemAsync(key);
     return;
   }
-  await SecureStore.setItemAsync(STAFF_TOKEN_KEY, token, {
+  await SecureStore.setItemAsync(key, token, {
     keychainAccessible: SecureStore.WHEN_UNLOCKED,
   });
 }
+
+export const getStaffToken = (): Promise<string | null> => getToken(STAFF_TOKEN_KEY);
+export const setStaffToken = (token: string | null): Promise<void> => setToken(STAFF_TOKEN_KEY, token);
+export const getClientToken = (): Promise<string | null> => getToken(CLIENT_TOKEN_KEY);
+export const setClientToken = (token: string | null): Promise<void> => setToken(CLIENT_TOKEN_KEY, token);
