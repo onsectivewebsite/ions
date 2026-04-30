@@ -16,6 +16,7 @@ import {
 import { rpcMutation, rpcQuery } from '../../../lib/api';
 import { getAccessToken } from '../../../lib/session';
 import { AppShell, type ShellUser } from '../../../components/AppShell';
+import { FieldLabel } from '../../../components/forms';
 
 type Branch = { id: string; name: string; isActive: boolean };
 
@@ -160,15 +161,28 @@ function NewLeadInner() {
                   <Input id="ln" value={lastName} onChange={(e) => setLastName(e.target.value)} />
                 </div>
                 <div>
-                  <Label htmlFor="ph">Phone</Label>
-                  <Input id="ph" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 ___ ___ ____" />
+                  <FieldLabel htmlFor="ph" required>
+                    Phone
+                  </FieldLabel>
+                  <Input
+                    id="ph"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+1 ___ ___ ____"
+                  />
+                  <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                    Required if no email — we use phone as the canonical key.
+                  </p>
                 </div>
                 <div>
-                  <Label htmlFor="em">Email</Label>
+                  <FieldLabel htmlFor="em">Email</FieldLabel>
                   <Input id="em" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
                 </div>
                 <div>
-                  <Label htmlFor="src">Source</Label>
+                  <FieldLabel htmlFor="src" required>
+                    Source
+                  </FieldLabel>
                   <select
                     id="src"
                     value={source}

@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { randomBytes, createHash } from 'node:crypto';
 import { Prisma } from '@onsecboad/db';
 import { sendUserInviteEmail } from '@onsecboad/email';
+import { tenantEmailBrand } from '../lib/email-brand.js';
 import { loadEnv } from '@onsecboad/config';
 import { router, protectedProcedure, firmProcedure } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
@@ -192,7 +193,6 @@ export const userRouter = router({
       });
 
       const inviteUrl = `${env.APP_URL.replace(/\/$/, '')}/invite/${token.raw}`;
-      const tenantBranding = (inviter.tenant.branding as Record<string, unknown> | null) ?? {};
       let emailSent = false;
       let emailError: string | undefined;
       try {
@@ -204,15 +204,7 @@ export const userRouter = router({
           inviterName: inviter.name,
           inviteUrl,
           ttlDays: INVITE_TTL_DAYS,
-          brand: {
-            productName: inviter.tenant.displayName,
-            primaryHex:
-              typeof tenantBranding.customPrimary === 'string'
-                ? tenantBranding.customPrimary
-                : undefined,
-            logoUrl:
-              typeof tenantBranding.logoUrl === 'string' ? tenantBranding.logoUrl : null,
-          },
+          brand: tenantEmailBrand(inviter.tenant),
         });
         emailSent = result.ok;
         if (!result.ok) {
@@ -290,7 +282,7 @@ export const userRouter = router({
           inviterName: inviter.name,
           inviteUrl,
           ttlDays: INVITE_TTL_DAYS,
-          brand: { productName: inviter.tenant.displayName },
+          brand: tenantEmailBrand(inviter.tenant),
         });
         emailSent = result.ok;
         if (!result.ok) emailError = result.error ?? 'unknown';

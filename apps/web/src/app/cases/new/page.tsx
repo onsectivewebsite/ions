@@ -17,6 +17,7 @@ import {
 import { rpcMutation, rpcQuery } from '../../../lib/api';
 import { getAccessToken } from '../../../lib/session';
 import { AppShell, type ShellUser } from '../../../components/AppShell';
+import { FieldLabel } from '../../../components/forms';
 
 type Me = {
   kind: 'firm';
@@ -180,7 +181,7 @@ function NewCaseInner() {
               </CardBody>
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <label className="text-xs">
-                  <Label className="mb-1 block">Case type</Label>
+                  <FieldLabel required>Case type</FieldLabel>
                   <select
                     value={caseType}
                     onChange={(e) => setCaseType(e.target.value)}
@@ -205,7 +206,7 @@ function NewCaseInner() {
                   />
                 </label>
                 <label className="text-xs">
-                  <Label className="mb-1 block">Lawyer of record</Label>
+                  <FieldLabel required>Lawyer of record</FieldLabel>
                   <select
                     value={lawyerId}
                     onChange={(e) => setLawyerId(e.target.value)}

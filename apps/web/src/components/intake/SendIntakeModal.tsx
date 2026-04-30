@@ -20,6 +20,8 @@ type CreateResp = {
   expiresAt: string;
   emailSent: boolean;
   emailError: string | null;
+  smsSent?: boolean;
+  smsError?: string | null;
 };
 
 type Props = {
@@ -182,7 +184,6 @@ export function SendIntakeModal({ open, onClose, onSent, leadId, clientId, defau
                   onClick={() => setMethod('sms')}
                   icon={<MessageSquare size={14} />}
                   label="SMS"
-                  disabled
                 />
                 <MethodTab
                   active={method === 'qr'}
@@ -199,8 +200,8 @@ export function SendIntakeModal({ open, onClose, onSent, leadId, clientId, defau
               </div>
               {method === 'sms' ? (
                 <div className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-                  SMS delivery ships once your firm wires Twilio. Until then, the link is generated
-                  and you can copy it manually.
+                  Delivers via your firm&rsquo;s Twilio. Not configured? You can still copy the
+                  link from the success screen.
                 </div>
               ) : null}
             </div>
@@ -303,11 +304,15 @@ function SuccessPanel({
           ? `Email sent to ${email}.`
           : method === 'email' && result.emailError
             ? `Email send failed: ${result.emailError}. Copy the link below and send manually.`
-            : method === 'sms'
-              ? `SMS to ${phone} is queued — copy the link as backup.`
-              : method === 'qr'
-                ? 'Show this QR / link to your client.'
-                : 'Hand the device to the client and open the link.'}
+            : method === 'sms' && result.smsSent
+              ? `SMS sent to ${phone}.`
+              : method === 'sms' && result.smsError
+                ? `SMS send failed: ${result.smsError}. Copy the link below and send manually.`
+                : method === 'sms'
+                  ? `SMS to ${phone} is queued.`
+                  : method === 'qr'
+                    ? 'Show this QR / link to your client.'
+                    : 'Hand the device to the client and open the link.'}
       </div>
 
       <div>

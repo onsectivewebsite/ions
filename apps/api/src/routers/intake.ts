@@ -16,26 +16,17 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '@onsecboad/db';
 import { sendIntakeRequestEmail } from '@onsecboad/email';
 import { loadEnv } from '@onsecboad/config';
+import { sendSms } from '@onsecboad/twilio';
 import { router } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
+import { tenantEmailBrand } from '../lib/email-brand.js';
+import { getTwilioCreds } from '../lib/twilio-config.js';
 import { logger } from '../logger.js';
 
 const env = loadEnv();
 
 function hashToken(raw: string): string {
   return createHash('sha256').update(raw).digest('hex');
-}
-
-function pickBrand(t: {
-  displayName: string;
-  branding: unknown;
-}): { productName: string; primaryHex?: string; logoUrl?: string | null } {
-  const b = (t.branding as Record<string, unknown> | null | undefined) ?? {};
-  return {
-    productName: t.displayName,
-    primaryHex: typeof b.customPrimary === 'string' ? b.customPrimary : undefined,
-    logoUrl: typeof b.logoUrl === 'string' ? b.logoUrl : null,
-  };
 }
 
 type FieldDef = {
@@ -305,18 +296,18 @@ export const intakeRouter = router({
 
       const url = `${env.APP_URL.replace(/\/$/, '')}/intake/${tokenPlain}`;
 
-      // Best-effort email delivery when sentVia=email and we have an address.
+      // Best-effort delivery — email or SMS depending on sentVia.
       let emailSent = false;
       let emailError: string | null = null;
+      let smsSent = false;
+      let smsError: string | null = null;
+      const tenant = await ctx.prisma.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { displayName: true, branding: true },
+      });
+
       if (input.sentVia === 'email' && input.recipientEmail) {
         try {
-          const tenant = await ctx.prisma.tenant.findUnique({
-            where: { id: ctx.tenantId },
-            select: { displayName: true, branding: true },
-          });
-          const brand = tenant
-            ? pickBrand(tenant)
-            : { productName: 'OnsecBoad' };
           const result = await sendIntakeRequestEmail({
             to: input.recipientEmail,
             recipientName: input.recipientName ?? 'there',
@@ -324,7 +315,7 @@ export const intakeRouter = router({
             templateName: tpl.name,
             url,
             ttlDays: input.ttlDays,
-            brand,
+            brand: tenantEmailBrand(tenant),
           });
           if (result.ok) {
             emailSent = true;
@@ -333,6 +324,23 @@ export const intakeRouter = router({
           }
         } catch (e) {
           emailError = e instanceof Error ? e.message : 'send failed';
+        }
+      }
+
+      if (input.sentVia === 'sms' && input.recipientPhone) {
+        try {
+          const creds = await getTwilioCreds(ctx.prisma, ctx.tenantId);
+          const firmName = tenant?.displayName ?? 'Your firm';
+          const body = `${firmName}: please fill this short intake form before your consultation. ${url}`;
+          const result = await sendSms({
+            creds,
+            to: input.recipientPhone,
+            body,
+          });
+          smsSent = result.status === 'queued' || result.status === 'sent' || result.status === 'delivered';
+          if (!smsSent) smsError = `status ${result.status}`;
+        } catch (e) {
+          smsError = e instanceof Error ? e.message : 'send failed';
         }
       }
 
@@ -357,7 +365,13 @@ export const intakeRouter = router({
       });
 
       logger.info(
-        { tenantId: ctx.tenantId, requestId: req.id, sentVia: input.sentVia, emailSent },
+        {
+          tenantId: ctx.tenantId,
+          requestId: req.id,
+          sentVia: input.sentVia,
+          emailSent,
+          smsSent,
+        },
         'intake request issued',
       );
 
@@ -368,6 +382,8 @@ export const intakeRouter = router({
         expiresAt,
         emailSent,
         emailError,
+        smsSent,
+        smsError,
       };
     }),
 
