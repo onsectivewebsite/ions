@@ -20,6 +20,14 @@ export type RealtimeEvent =
       sender: 'CLIENT' | 'STAFF' | 'SYSTEM';
       bodyPreview: string;
     }
+  | {
+      type: 'intake.filled';
+      requestId: string;
+      submissionId: string;
+      leadId: string | null;
+      clientId: string | null;
+      templateName: string;
+    }
   | { type: 'ping'; t: number };
 
 type Listener = (ev: RealtimeEvent) => void;

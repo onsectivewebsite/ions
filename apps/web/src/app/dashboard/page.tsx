@@ -170,7 +170,34 @@ function PlatformDashboard({ me }: { me: Extract<Me, { kind: 'platform' }> }) {
   );
 }
 
+type DashboardKpis = {
+  openLeads: number;
+  casesInFlight: number;
+  callsThisWeek: number;
+  pendingInvoiceCents: number;
+  intake: { sentThisWeek: number; filledThisWeek: number };
+};
+
 function FirmDashboard({ me }: { me: Extract<Me, { kind: 'firm' }> }) {
+  const [kpis, setKpis] = useState<DashboardKpis | null>(null);
+  useEffect(() => {
+    const token = getAccessToken();
+    rpcQuery<DashboardKpis>('kpi.dashboard', undefined, { token })
+      .then(setKpis)
+      .catch(() => setKpis(null));
+  }, []);
+  const fmt = (n: number | undefined): string =>
+    n === undefined ? '—' : n.toLocaleString();
+  const fmtCents = (c: number | undefined): string => {
+    if (c === undefined) return '—';
+    const dollars = (c / 100).toFixed(2);
+    return `$${Number(dollars).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  };
+  const intakeRate =
+    kpis && kpis.intake.sentThisWeek > 0
+      ? Math.round((kpis.intake.filledThisWeek / kpis.intake.sentThisWeek) * 100)
+      : null;
+
   return (
     <div className="space-y-8">
       <HeroBanner
@@ -181,11 +208,48 @@ function FirmDashboard({ me }: { me: Extract<Me, { kind: 'firm' }> }) {
       />
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Open leads" value="—" icon={Users} />
-        <StatCard label="Cases in flight" value="—" icon={Activity} tone="info" />
-        <StatCard label="This week (calls)" value="—" icon={CreditCard} tone="accent" />
-        <StatCard label="Pending invoices" value="—" icon={CreditCard} tone="warning" />
+        <StatCard label="Open leads" value={fmt(kpis?.openLeads)} icon={Users} />
+        <StatCard
+          label="Cases in flight"
+          value={fmt(kpis?.casesInFlight)}
+          icon={Activity}
+          tone="info"
+        />
+        <StatCard
+          label="Calls this week"
+          value={fmt(kpis?.callsThisWeek)}
+          icon={CreditCard}
+          tone="accent"
+        />
+        <StatCard
+          label="Pending invoices"
+          value={fmtCents(kpis?.pendingInvoiceCents)}
+          icon={CreditCard}
+          tone="warning"
+        />
       </section>
+
+      {kpis && (kpis.intake.sentThisWeek > 0 || kpis.intake.filledThisWeek > 0) ? (
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Intake forms sent (7d)"
+            value={fmt(kpis.intake.sentThisWeek)}
+            icon={Users}
+          />
+          <StatCard
+            label="Intake forms filled (7d)"
+            value={fmt(kpis.intake.filledThisWeek)}
+            icon={Activity}
+            tone="success"
+          />
+          <StatCard
+            label="Fill rate"
+            value={intakeRate === null ? '—' : `${intakeRate}%`}
+            icon={CreditCard}
+            tone="accent"
+          />
+        </section>
+      ) : null}
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">

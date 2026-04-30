@@ -44,6 +44,9 @@ export default function SecurityPage() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [recoveryStatus, setRecoveryStatus] = useState<{ remaining: number; total: number } | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
 
   async function loadMe(): Promise<void> {
     const token = getAccessToken();
@@ -59,8 +62,49 @@ export default function SecurityPage() {
     }
   }
 
+  async function loadRecoveryStatus(): Promise<void> {
+    const token = getAccessToken();
+    if (!token) return;
+    try {
+      const r = await rpcQuery<{ remaining: number; total: number }>(
+        'auth.recoveryCodesStatus',
+        undefined,
+        { token },
+      );
+      setRecoveryStatus(r);
+    } catch {
+      setRecoveryStatus(null);
+    }
+  }
+
+  async function regenerateRecoveryCodes(): Promise<void> {
+    if (
+      !confirm(
+        'Replace all existing recovery codes with 10 new ones? Old codes (used or unused) will stop working.',
+      )
+    )
+      return;
+    setRegenerating(true);
+    setError(null);
+    try {
+      const token = getAccessToken();
+      const r = await rpcMutation<{ codes: string[] }>(
+        'auth.recoveryCodesRegenerate',
+        undefined,
+        { token },
+      );
+      setRecoveryCodes(r.codes);
+      await loadRecoveryStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Regenerate failed');
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
   useEffect(() => {
     void loadMe();
+    void loadRecoveryStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -86,7 +130,7 @@ export default function SecurityPage() {
     setBusy(true);
     try {
       const token = getAccessToken();
-      await rpcMutation(
+      const r = await rpcMutation<{ ok: true; recoveryCodes: string[] }>(
         'auth.totpConfirmEnroll',
         { secret: enrollment.secret, code },
         { token },
@@ -94,6 +138,9 @@ export default function SecurityPage() {
       setInfo('Authenticator app linked. You will be asked for a code at sign-in.');
       setEnrollment(null);
       setCode('');
+      if (r.recoveryCodes && r.recoveryCodes.length > 0) {
+        setRecoveryCodes(r.recoveryCodes);
+      }
       await loadMe();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Code did not match');
@@ -248,6 +295,91 @@ export default function SecurityPage() {
                 </div>
               )}
             </Card>
+
+            {me.twoFAEnrolled ? (
+              <Card>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Recovery codes</CardTitle>
+                  {recoveryStatus ? (
+                    <Badge
+                      tone={
+                        recoveryStatus.remaining === 0
+                          ? 'danger'
+                          : recoveryStatus.remaining < 3
+                            ? 'warning'
+                            : 'neutral'
+                      }
+                    >
+                      {recoveryStatus.remaining}/{recoveryStatus.total} unused
+                    </Badge>
+                  ) : null}
+                </div>
+                <CardBody className="mt-3 text-sm text-[var(--color-text-muted)]">
+                  Print these or store them in a password manager. Each code is single-use; if
+                  you lose your authenticator app, one of these gets you back in.
+                </CardBody>
+
+                {recoveryCodes ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-[var(--radius-md)] border border-[var(--color-warning)]/40 bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-3 text-xs">
+                      <div className="font-medium">Save these now — you won&rsquo;t see them again.</div>
+                      <p className="mt-1 text-[var(--color-text-muted)]">
+                        Once you leave this page, the codes are hashed at rest. Even support
+                        can&rsquo;t recover them.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 font-mono text-sm">
+                      {recoveryCodes.map((c) => (
+                        <div key={c} className="select-all">
+                          {c}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(recoveryCodes.join('\n'));
+                        }}
+                      >
+                        <Copy size={14} /> Copy all
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (typeof window === 'undefined') return;
+                          window.print();
+                        }}
+                      >
+                        Print
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setRecoveryCodes(null)}>
+                        I&rsquo;ve saved them
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={regenerateRecoveryCodes}
+                      disabled={regenerating}
+                    >
+                      {regenerating ? <Spinner /> : null}
+                      Regenerate 10 new codes
+                    </Button>
+                    {recoveryStatus && recoveryStatus.remaining < 3 ? (
+                      <p className="mt-2 text-xs text-[var(--color-warning)]">
+                        Running low — regenerate before you lock yourself out.
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </Card>
+            ) : null}
 
             <Card>
               <div className="flex items-center justify-between">

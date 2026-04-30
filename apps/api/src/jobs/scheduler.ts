@@ -13,6 +13,7 @@ import { logger } from '../logger.js';
 import { reconcileAllSeats } from './seat-reconcile.js';
 import { aiAgentTick } from './ai-agent-tick.js';
 import { dataPurgeTick } from './data-purge.js';
+import { auditPurgeTick } from './audit-purge.js';
 
 const env = loadEnv();
 
@@ -82,5 +83,24 @@ export function startScheduledJobs(): void {
       }
     });
     logger.info({ schedule: env.CRON_DATA_PURGE }, 'cron: data purge scheduled');
+  }
+
+  // Stage 5.2 + 8.4 — daily audit log purge respecting per-tenant retention.
+  // Reuses CRON_DATA_PURGE schedule since both run in the small hours.
+  if (cron.validate(env.CRON_DATA_PURGE)) {
+    cron.schedule(env.CRON_DATA_PURGE, async () => {
+      const start = Date.now();
+      logger.info('cron: audit purge starting');
+      try {
+        const r = await auditPurgeTick();
+        logger.info(
+          { ...r, ms: Date.now() - start },
+          `cron: audit purge done — tenants ${r.tenantsScanned}, deleted ${r.rowsDeleted}, errors ${r.errors}`,
+        );
+      } catch (e) {
+        logger.error({ err: e }, 'cron: audit purge threw');
+      }
+    });
+    logger.info({ schedule: env.CRON_DATA_PURGE }, 'cron: audit purge scheduled');
   }
 }

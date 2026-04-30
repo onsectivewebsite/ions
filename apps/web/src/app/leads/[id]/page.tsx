@@ -34,6 +34,7 @@ import { AppShell, type ShellUser } from '../../../components/AppShell';
 import { IntakeForm, type IntakeField } from '../../../components/intake/IntakeForm';
 import { SendIntakeModal } from '../../../components/intake/SendIntakeModal';
 import { NotFoundPanel } from '../../../components/NotFoundPanel';
+import { useRealtime } from '../../../lib/realtime';
 
 type LeadStatus = 'NEW' | 'CONTACTED' | 'FOLLOWUP' | 'INTERESTED' | 'BOOKED' | 'CONVERTED' | 'LOST' | 'DNC';
 
@@ -498,7 +499,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 </ul>
               </Card>
 
-              <IntakeRequestsCard leadId={id} onError={setError} />
+              <IntakeRequestsCard
+                leadId={id}
+                onError={setError}
+                onFilled={(name) => {
+                  setInfo(`Intake form "${name}" was just submitted.`);
+                  void refresh();
+                }}
+              />
             </div>
 
             <div className="space-y-6">
@@ -1435,9 +1443,11 @@ type IntakeRequestRow = {
 function IntakeRequestsCard({
   leadId,
   onError,
+  onFilled,
 }: {
   leadId: string;
   onError: (msg: string) => void;
+  onFilled?: (templateName: string) => void;
 }) {
   const [rows, setRows] = useState<IntakeRequestRow[] | null>(null);
   const [refresh, setRefresh] = useState(0);
@@ -1448,6 +1458,14 @@ function IntakeRequestsCard({
       .then(setRows)
       .catch((e) => onError(e instanceof Error ? e.message : 'Failed to load intake requests'));
   }, [leadId, onError, refresh]);
+
+  // Live update when the client fills the form on their device.
+  useRealtime((ev) => {
+    if (ev.type === 'intake.filled' && ev.leadId === leadId) {
+      setRefresh((x) => x + 1);
+      if (onFilled) onFilled(ev.templateName);
+    }
+  });
 
   async function unlock(submissionId: string): Promise<void> {
     if (!confirm('Unlock this filled intake form so the client can edit again?')) return;

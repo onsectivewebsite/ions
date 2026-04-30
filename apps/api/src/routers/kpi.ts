@@ -7,7 +7,7 @@
  */
 import { z } from 'zod';
 import { Prisma } from '@onsecboad/db';
-import { router } from '../trpc.js';
+import { router, firmProcedure } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
 
 const rangeSchema = z.object({
@@ -144,4 +144,96 @@ export const kpiRouter = router({
         perAgent: perAgent.sort((a, b) => b.calls - a.calls),
       };
     }),
+
+  /**
+   * Lightweight tile counters for the firm dashboard. Permission-free
+   * (firmProcedure) so every staff user sees the same headline numbers.
+   * Branch-scoped users still see only their branch via ctx.scope.
+   */
+  dashboard: firmProcedure.query(async ({ ctx }) => {
+    const branchFilter: { branchId?: string } = {};
+    if (ctx.scope === 'branch' && ctx.perms.branchId) {
+      branchFilter.branchId = ctx.perms.branchId;
+    }
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      openLeads,
+      casesInFlight,
+      callsThisWeek,
+      pendingInvoiceAggregate,
+      intakeRequestsSentThisWeek,
+      intakeRequestsFilledThisWeek,
+    ] = await Promise.all([
+      ctx.prisma.lead.count({
+        where: {
+          tenantId: ctx.tenantId,
+          deletedAt: null,
+          status: { in: ['NEW', 'CONTACTED', 'FOLLOWUP', 'INTERESTED', 'BOOKED'] },
+          ...branchFilter,
+        },
+      }),
+      ctx.prisma.case.count({
+        where: {
+          tenantId: ctx.tenantId,
+          deletedAt: null,
+          status: {
+            in: [
+              'PENDING_RETAINER',
+              'PENDING_RETAINER_SIGNATURE',
+              'PENDING_DOCUMENTS',
+              'PREPARING',
+              'PENDING_LAWYER_APPROVAL',
+              'SUBMITTED_TO_IRCC',
+              'IN_REVIEW',
+            ],
+          },
+          ...branchFilter,
+        },
+      }),
+      ctx.prisma.callLog.count({
+        where: {
+          tenantId: ctx.tenantId,
+          startedAt: { gte: weekAgo },
+          ...(branchFilter.branchId
+            ? { lead: { is: { branchId: branchFilter.branchId } } }
+            : {}),
+        },
+      }),
+      ctx.prisma.caseInvoice.aggregate({
+        where: {
+          tenantId: ctx.tenantId,
+          status: { in: ['SENT', 'PARTIAL'] },
+          ...(branchFilter.branchId
+            ? { case: { is: { branchId: branchFilter.branchId } } }
+            : {}),
+        },
+        _sum: { totalCents: true },
+      }),
+      ctx.prisma.intakeRequest.count({
+        where: {
+          tenantId: ctx.tenantId,
+          createdAt: { gte: weekAgo },
+        },
+      }),
+      ctx.prisma.intakeRequest.count({
+        where: {
+          tenantId: ctx.tenantId,
+          createdAt: { gte: weekAgo },
+          filledAt: { not: null },
+        },
+      }),
+    ]);
+
+    return {
+      openLeads,
+      casesInFlight,
+      callsThisWeek,
+      pendingInvoiceCents: pendingInvoiceAggregate._sum.totalCents ?? 0,
+      intake: {
+        sentThisWeek: intakeRequestsSentThisWeek,
+        filledThisWeek: intakeRequestsFilledThisWeek,
+      },
+    };
+  }),
 });

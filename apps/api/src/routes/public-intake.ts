@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { Prisma, prisma } from '@onsecboad/db';
+import { publishEvent } from '../lib/realtime.js';
 
 function hashToken(t: string): string {
   return createHash('sha256').update(t).digest('hex');
@@ -249,6 +250,19 @@ export async function publicIntakeSubmitHandler(
     });
     return sub;
   });
+
+  // Best-effort realtime push so the receptionist's screen lights up.
+  await publishEvent(
+    { kind: 'tenant', tenantId: r.tenantId },
+    {
+      type: 'intake.filled',
+      requestId: r.id,
+      submissionId: submission.id,
+      leadId: r.leadId,
+      clientId: r.clientId,
+      templateName: r.template.name,
+    },
+  );
 
   res.json({ ok: true, submissionId: submission.id });
 }
