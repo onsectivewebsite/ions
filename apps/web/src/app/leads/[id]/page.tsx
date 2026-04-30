@@ -618,7 +618,7 @@ function CallDialog({
     try {
       const token = getAccessToken();
       const r = await rpcMutation<{ callLogId: string; mode: 'real' | 'dry-run' }>(
-        'call.start',
+        'calls.start',
         { leadId, toNumber },
         { token },
       );
@@ -639,7 +639,7 @@ function CallDialog({
     try {
       const token = getAccessToken();
       await rpcMutation(
-        'call.end',
+        'calls.end',
         {
           callLogId,
           disposition: disposition || undefined,

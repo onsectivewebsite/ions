@@ -15,7 +15,6 @@
  * COMPLETED payment amounts net of refunds count.
  */
 import type { PrismaClient, Prisma } from '@onsecboad/db';
-import { invalidateInvoicePdf } from './invoice-pdf-store.js';
 
 type Tx = PrismaClient | Prisma.TransactionClient;
 
@@ -123,6 +122,9 @@ export async function refreshInvoiceStatuses(
         },
       });
       // Status change → cached PDF is stale (PAID stamp / status badge).
+      // Lazy-import to keep the pure-function helpers in this file
+      // unit-testable without dragging the R2/env config chain along.
+      const { invalidateInvoicePdf } = await import('./invoice-pdf-store.js');
       await invalidateInvoicePdf(tx, inv.id);
     }
   }
