@@ -5,10 +5,7 @@ const config = {
   // 'standalone' produces a tiny self-contained server bundle — Docker
   // image drops from ~700MB to ~150MB.
   output: 'standalone',
-  experimental: {
-    // typedRoutes: enable once Phase 1+ routes (firms, billing, audit, leads, …) land.
-    typedRoutes: false,
-  },
+  typedRoutes: false,
   transpilePackages: [
     '@onsecboad/ui',
     '@onsecboad/config',
