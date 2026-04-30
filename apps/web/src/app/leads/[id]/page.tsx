@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Phone,
   Save,
+  UserCheck,
   UserCog,
   X,
 } from 'lucide-react';
@@ -344,6 +345,29 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 title="Book a consultation for this lead"
               >
                 <Calendar size={14} /> Book consult
+              </Button>
+              <Button
+                size="sm"
+                disabled={!lead.phone || busy}
+                title={
+                  !lead.phone
+                    ? 'Lead needs a phone before promoting to client'
+                    : 'Promote this lead to a Client (idempotent on phone)'
+                }
+                onClick={() =>
+                  action('Promoted to client', async () => {
+                    const r = await rpcMutation<{ id: string; created: boolean }>(
+                      'client.upsertFromLead',
+                      { leadId: id },
+                      { token: token() },
+                    );
+                    // After conversion, hop to the new client detail page.
+                    router.push(`/clients/${r.id}`);
+                    return r;
+                  })
+                }
+              >
+                <UserCheck size={14} /> Convert to client
               </Button>
               <div className="ml-auto flex gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setAssignOpen(true)}>
