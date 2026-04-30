@@ -67,6 +67,10 @@ model Tenant {
   taxIdType            String?      // 'ca_gst_hst' | 'us_ein' | etc — Stripe type code
   // PIPEDA-relevant. Default 730 (2 years) matches s.10.3 record-keeping.
   auditRetentionDays   Int          @default(730)
+  // Per-firm feature flags ({ [key]: boolean }) + active announcement
+  // ({ message, level: 'info' | 'warning' | 'urgent', expiresAt }).
+  featureFlags         Json?
+  announcement         Json?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   deletedAt       DateTime?

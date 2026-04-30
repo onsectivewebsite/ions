@@ -131,6 +131,45 @@ export const platformRouter = router({
       }),
   }),
 
+  /**
+   * Backup status (read-only). Lists objects in R2 under the backup
+   * prefix. Backups are created by infra/scripts/pg_backup.sh on the
+   * host (cron) and uploaded via rclone — this endpoint is purely for
+   * verification. Restore is intentionally not in-app: it requires a
+   * runbook step (infra/runbooks/restore.md).
+   */
+  backups: router({
+    list: platformProcedure.query(async () => {
+      const { listObjects, isDryRun } = await import('@onsecboad/r2');
+      if (isDryRun()) {
+        return {
+          dryRun: true,
+          items: [],
+          newest: null,
+        };
+      }
+      const items = await listObjects('backups/', 50);
+      // Sort newest-first.
+      const sorted = items
+        .filter((o) => o.key)
+        .sort((a, b) => {
+          const ta = a.lastModified?.getTime() ?? 0;
+          const tb = b.lastModified?.getTime() ?? 0;
+          return tb - ta;
+        });
+      const newest = sorted[0]?.lastModified?.toISOString() ?? null;
+      return {
+        dryRun: false,
+        items: sorted.map((o) => ({
+          key: o.key,
+          size: o.size,
+          lastModified: o.lastModified?.toISOString() ?? null,
+        })),
+        newest,
+      };
+    }),
+  }),
+
   /** Cross-firm billing queries. */
   billing: router({
     overview: platformProcedure.query(async ({ ctx }) => {

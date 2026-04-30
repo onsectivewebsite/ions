@@ -11,6 +11,7 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -101,6 +102,32 @@ export async function deleteObject(key: string): Promise<void> {
     return;
   }
   await realClient!.send(new DeleteObjectCommand({ Bucket: env.R2_BUCKET!, Key: key }));
+}
+
+/**
+ * List objects under a prefix. Used for the platform-admin backups view.
+ * Returns name, size, lastModified for each. Empty array in dry-run.
+ */
+export async function listObjects(
+  prefix: string,
+  maxKeys = 100,
+): Promise<Array<{ key: string; size: number; lastModified: Date | null }>> {
+  if (r2Mode === 'dry-run') {
+    log('listObjects', { prefix });
+    return [];
+  }
+  const out = await realClient!.send(
+    new ListObjectsV2Command({
+      Bucket: env.R2_BUCKET!,
+      Prefix: prefix,
+      MaxKeys: maxKeys,
+    }),
+  );
+  return (out.Contents ?? []).map((o) => ({
+    key: o.Key ?? '',
+    size: o.Size ?? 0,
+    lastModified: o.LastModified ?? null,
+  }));
 }
 
 /**

@@ -701,6 +701,157 @@ export const tenantPlatformRouter = router({
     }),
 
   /**
+   * Per-firm feature flags. Toggle a single key on/off; returns the new
+   * flags map. Lets platform admin grant/revoke specific features
+   * without a deploy.
+   */
+  setFeatureFlag: platformProcedure
+    .input(
+      z.object({
+        tenantId: z.string().uuid(),
+        key: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{1,40}$/, 'letters/numbers/dash/underscore'),
+        value: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const t = await ctx.prisma.tenant.findUnique({ where: { id: input.tenantId } });
+      if (!t) throw new TRPCError({ code: 'NOT_FOUND' });
+      const prev = (t.featureFlags as Record<string, unknown> | null) ?? {};
+      const next = { ...prev, [input.key]: input.value };
+      await ctx.prisma.tenant.update({
+        where: { id: t.id },
+        data: { featureFlags: next },
+      });
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: t.id,
+          actorId: ctx.session.sub,
+          actorType: 'PLATFORM',
+          action: 'platform.featureFlag.set',
+          targetType: 'Tenant',
+          targetId: t.id,
+          payload: { key: input.key, value: input.value },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+      return { ok: true, featureFlags: next };
+    }),
+
+  /**
+   * Send (or clear) a firm-wide announcement banner. Persisted on the
+   * Tenant row + audited. Frontend polls tenant.brandingGet on
+   * navigation; we surface it via a separate read here so the firm
+   * AppShell can fetch it cheaply.
+   */
+  setAnnouncement: platformProcedure
+    .input(
+      z.object({
+        tenantId: z.string().uuid(),
+        message: z.string().max(500).nullable(),
+        level: z.enum(['info', 'warning', 'urgent']).default('info'),
+        expiresAt: z.string().datetime().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const t = await ctx.prisma.tenant.findUnique({ where: { id: input.tenantId } });
+      if (!t) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      const announcement =
+        input.message === null || input.message.trim().length === 0
+          ? null
+          : {
+              message: input.message,
+              level: input.level,
+              expiresAt: input.expiresAt ?? null,
+              setAt: new Date().toISOString(),
+            };
+
+      await ctx.prisma.tenant.update({
+        where: { id: t.id },
+        data: { announcement: announcement ?? Prisma.JsonNull },
+      });
+
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: t.id,
+          actorId: ctx.session.sub,
+          actorType: 'PLATFORM',
+          action: announcement
+            ? 'platform.announcement.set'
+            : 'platform.announcement.clear',
+          targetType: 'Tenant',
+          targetId: t.id,
+          payload: announcement ?? {},
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+      return { ok: true, announcement };
+    }),
+
+  /**
+   * Per-firm AI usage summary for the platform admin. Same shape as the
+   * firm-side aiUsage.summary, scoped by tenantId. Default: last 30 days.
+   */
+  aiUsage: platformProcedure
+    .input(
+      z.object({
+        tenantId: z.string().uuid(),
+        days: z.number().int().min(1).max(365).default(30),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const to = new Date();
+      const from = new Date(to.getTime() - input.days * 24 * 60 * 60 * 1000);
+      const where = {
+        tenantId: input.tenantId,
+        createdAt: { gte: from, lte: to },
+      };
+      const [total, byFeature, byModel, count] = await Promise.all([
+        ctx.prisma.aiUsage.aggregate({
+          where,
+          _sum: { inputTokens: true, cachedInputTokens: true, outputTokens: true, costCents: true },
+        }),
+        ctx.prisma.aiUsage.groupBy({
+          by: ['feature'],
+          where,
+          _sum: { costCents: true },
+          _count: { _all: true },
+        }),
+        ctx.prisma.aiUsage.groupBy({
+          by: ['model'],
+          where,
+          _sum: { costCents: true },
+          _count: { _all: true },
+        }),
+        ctx.prisma.aiUsage.count({ where }),
+      ]);
+      return {
+        from: from.toISOString(),
+        to: to.toISOString(),
+        days: input.days,
+        callCount: count,
+        totals: {
+          inputTokens: total._sum.inputTokens ?? 0,
+          cachedInputTokens: total._sum.cachedInputTokens ?? 0,
+          outputTokens: total._sum.outputTokens ?? 0,
+          costCents: total._sum.costCents ?? 0,
+        },
+        byFeature: byFeature.map((g) => ({
+          feature: g.feature,
+          calls: g._count._all,
+          costCents: g._sum.costCents ?? 0,
+        })),
+        byModel: byModel.map((g) => ({
+          model: g.model,
+          calls: g._count._all,
+          costCents: g._sum.costCents ?? 0,
+        })),
+      };
+    }),
+
+  /**
    * Support tool: impersonate a firm user. Mints a firm-scope JWT for the
    * platform admin to "log in as" the target user. Used to reproduce
    * customer issues, walk a firm through their UI, etc. Heavily audit-

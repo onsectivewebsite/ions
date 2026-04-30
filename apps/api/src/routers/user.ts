@@ -691,6 +691,8 @@ export const userRouter = router({
           slug: u.tenant.slug,
           displayName: u.tenant.displayName,
           branding: u.tenant.branding,
+          announcement: u.tenant.announcement,
+          featureFlags: u.tenant.featureFlags,
         },
       };
     }

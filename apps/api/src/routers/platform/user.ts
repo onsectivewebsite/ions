@@ -8,8 +8,16 @@
  */
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import { createHash, randomBytes } from 'node:crypto';
+import { sendPasswordResetEmail } from '@onsecboad/email';
+import { loadEnv } from '@onsecboad/config';
 import { router, platformProcedure } from '../../trpc.js';
+import { redis } from '../../redis.js';
 import { syncSeats } from '../../lib/seats.js';
+import { tenantEmailBrand } from '../../lib/email-brand.js';
+import { logger } from '../../logger.js';
+
+const env = loadEnv();
 
 export const userPlatformRouter = router({
   update: platformProcedure
@@ -95,5 +103,73 @@ export const userPlatformRouter = router({
       await syncSeats(ctx.prisma, before.tenantId);
 
       return { ok: true };
+    }),
+
+  /**
+   * Force password reset on a firm user. Mints a single-use reset token,
+   * stashes it in Redis (30-min TTL), and emails a branded reset link to
+   * the user's address. Audit-logs the action with the platform admin's
+   * id so it's clear support did this. Doesn't change the password
+   * itself — the user picks a new one via the reset link.
+   */
+  forcePasswordReset: platformProcedure
+    .input(z.object({ userId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const u = await ctx.prisma.user.findFirst({
+        where: { id: input.userId, deletedAt: null },
+        include: { tenant: true },
+      });
+      if (!u) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      // Same key shape as auth.requestPasswordReset so completePasswordReset
+      // can consume it without changes.
+      const tokenRaw = randomBytes(32).toString('base64url');
+      const tokenHash = createHash('sha256').update(tokenRaw).digest('hex');
+      await redis.set(
+        `auth:pwreset:${tokenHash}`,
+        JSON.stringify({ kind: 'firm', userId: u.id }),
+        'EX',
+        30 * 60,
+      );
+      const resetUrl = `${env.APP_URL.replace(/\/$/, '')}/reset-password?token=${tokenRaw}`;
+
+      let emailSent = false;
+      let emailError: string | null = null;
+      try {
+        const result = await sendPasswordResetEmail({
+          to: u.email,
+          recipientName: u.name,
+          resetUrl,
+          ttlMinutes: 30,
+          brand: tenantEmailBrand(u.tenant),
+        });
+        emailSent = result.ok;
+        if (!result.ok) emailError = result.error ?? 'unknown';
+      } catch (e) {
+        emailError = e instanceof Error ? e.message : 'send failed';
+      }
+
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: u.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'PLATFORM',
+          action: 'platform.forcePasswordReset',
+          targetType: 'User',
+          targetId: u.id,
+          payload: { targetEmail: u.email, emailSent },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+
+      logger.warn(
+        { platformUserId: ctx.session.sub, targetUserId: u.id, tenantId: u.tenantId },
+        'platform: force password reset',
+      );
+
+      // Return the URL so the platform admin can copy it manually if SMTP
+      // dropped the message — typical support fallback.
+      return { ok: true, emailSent, emailError, resetUrl };
     }),
 });

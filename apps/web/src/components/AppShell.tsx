@@ -43,6 +43,12 @@ export type ShellUser = {
   /** Firm role permissions JSON. When provided, sidebar items with a `permit`
    *  gate are filtered. Platform users pass null (no gate). */
   permissions?: Permissions | null;
+  /** Optional firm-wide announcement banner from platform admin. */
+  announcement?: {
+    message: string;
+    level: 'info' | 'warning' | 'urgent';
+    expiresAt?: string | null;
+  } | null;
 };
 
 type Scope = false | 'own' | 'assigned' | 'case' | 'branch' | 'tenant';
@@ -72,6 +78,7 @@ const PLATFORM_NAV: NavItem[] = [
   { href: '/p/firms', label: 'Law firms', icon: Building2 },
   { href: '/billing', label: 'Billing', icon: CreditCard },
   { href: '/audit', label: 'Audit log', icon: Shield },
+  { href: '/admin/backups', label: 'Backups', icon: Building },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
@@ -97,21 +104,33 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  // Self-fetch permissions for firm users when the host page didn't pass them.
-  // Platform users have no gate, so no fetch.
+  // Self-fetch permissions + announcement for firm users when the host
+  // page didn't pass them. Platform users have no permission gate.
   const [fetchedPerms, setFetchedPerms] = useState<Permissions | null>(null);
+  const [fetchedAnnouncement, setFetchedAnnouncement] = useState<
+    ShellUser['announcement'] | null
+  >(null);
   useEffect(() => {
     if (user.scope !== 'firm') return;
-    if (user.permissions !== undefined && user.permissions !== null) {
-      setFetchedPerms(user.permissions);
-      return;
-    }
     const token = getAccessToken();
     if (!token) return;
-    rpcQuery<{ role?: { permissions: Permissions } }>('user.me', undefined, { token })
-      .then((m) => setFetchedPerms(m.role?.permissions ?? null))
-      .catch(() => setFetchedPerms(null));
-  }, [user.scope, user.permissions]);
+    rpcQuery<{
+      role?: { permissions: Permissions };
+      tenant?: { announcement?: ShellUser['announcement'] | null };
+    }>('user.me', undefined, { token })
+      .then((m) => {
+        if (user.permissions === undefined || user.permissions === null) {
+          setFetchedPerms(m.role?.permissions ?? null);
+        }
+        if (user.announcement === undefined) {
+          setFetchedAnnouncement(m.tenant?.announcement ?? null);
+        }
+      })
+      .catch(() => {
+        setFetchedPerms(null);
+        setFetchedAnnouncement(null);
+      });
+  }, [user.scope, user.permissions, user.announcement]);
   // Close mobile drawer on route change.
   useEffect(() => {
     setMobileOpen(false);
@@ -218,10 +237,26 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
       {/* ── Main column ─────────────────────────────────────────────────── */}
       <div className="flex min-h-screen flex-col">
         <ImpersonationBanner />
+        <AnnouncementBanner ann={user.announcement ?? fetchedAnnouncement ?? null} />
         <TopBar user={user} onSignOut={signOut} onOpenMenu={() => setMobileOpen(true)} />
         <main className="flex-1 px-4 py-6 sm:px-6 md:px-8 md:py-8">{children}</main>
       </div>
       {user.scope === 'firm' ? <Toaster /> : null}
+    </div>
+  );
+}
+
+function AnnouncementBanner({ ann }: { ann: ShellUser['announcement'] }) {
+  if (!ann) return null;
+  if (ann.expiresAt && new Date(ann.expiresAt) < new Date()) return null;
+  const tone = {
+    info: 'bg-[var(--color-info)] text-white',
+    warning: 'bg-[var(--color-warning)] text-white',
+    urgent: 'bg-[var(--color-danger)] text-white',
+  }[ann.level];
+  return (
+    <div className={`${tone} px-4 py-2 text-center text-xs font-medium`}>
+      {ann.message}
     </div>
   );
 }

@@ -105,7 +105,7 @@ export default function FirmDetailPage({ params }: { params: Promise<{ id: strin
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [firm, setFirm] = useState<Firm | null>(null);
-  const [tab, setTab] = useState<'overview' | 'subscription' | 'users' | 'activity'>('overview');
+  const [tab, setTab] = useState<'overview' | 'subscription' | 'users' | 'ai' | 'activity'>('overview');
   const [busy, setBusy] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +213,35 @@ export default function FirmDetailPage({ params }: { params: Promise<{ id: strin
     }
   }
 
+  async function forcePasswordReset(userId: string, email: string): Promise<void> {
+    if (typeof window === 'undefined') return;
+    if (
+      !confirm(
+        `Force password reset for ${email}? They'll receive a reset email; their current password stops working when they pick a new one.`,
+      )
+    )
+      return;
+    try {
+      const token = getAccessToken();
+      const r = await rpcMutation<{ emailSent: boolean; emailError: string | null; resetUrl: string }>(
+        'platform.user.forcePasswordReset',
+        { userId },
+        { token },
+      );
+      if (r.emailSent) {
+        setInfo(`Reset email sent to ${email}.`);
+      } else {
+        // SMTP failure — fall back to copy-paste of the URL.
+        await navigator.clipboard.writeText(r.resetUrl);
+        setInfo(
+          `Email failed (${r.emailError ?? 'unknown'}). Reset URL copied to clipboard — send it manually.`,
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reset failed');
+    }
+  }
+
   async function extendTrial(): Promise<void> {
     if (typeof window === 'undefined' || !firm) return;
     const days = window.prompt('Extend trial by how many days? (1–90)', '14');
@@ -295,7 +324,7 @@ export default function FirmDetailPage({ params }: { params: Promise<{ id: strin
 
           <div className="border-b border-[var(--color-border-muted)]">
             <nav className="flex gap-1">
-              {(['overview', 'subscription', 'users', 'activity'] as const).map((t) => (
+              {(['overview', 'subscription', 'users', 'ai', 'activity'] as const).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -405,6 +434,13 @@ export default function FirmDetailPage({ params }: { params: Promise<{ id: strin
                                   onClick={() => impersonate(u.id)}
                                 >
                                   Impersonate
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => forcePasswordReset(u.id, u.email)}
+                                >
+                                  Reset password
                                 </Button>
                               </div>
                             </div>
@@ -640,6 +676,25 @@ export default function FirmDetailPage({ params }: { params: Promise<{ id: strin
                 )}
               </div>
             </Card>
+          ) : null}
+
+          {tab === 'ai' ? <AiUsageCard tenantId={firm.id} /> : null}
+
+          {tab === 'overview' ? (
+            <PlatformControlsCard
+              tenantId={firm.id}
+              flags={
+                (firm as unknown as { featureFlags?: Record<string, boolean> }).featureFlags ??
+                {}
+              }
+              announcement={
+                (firm as unknown as {
+                  announcement?: { message: string; level: 'info' | 'warning' | 'urgent' } | null;
+                }).announcement ?? null
+              }
+              onChanged={() => void refresh()}
+              onError={(m) => setError(m)}
+            />
           ) : null}
 
           {tab === 'activity' ? (
@@ -1096,5 +1151,269 @@ function DeleteFirmDialog({
         </div>
       </div>
     </ModalShell>
+  );
+}
+
+type AiUsageResp = {
+  from: string;
+  to: string;
+  days: number;
+  callCount: number;
+  totals: {
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+    costCents: number;
+  };
+  byFeature: { feature: string; calls: number; costCents: number }[];
+  byModel: { model: string; calls: number; costCents: number }[];
+};
+
+function AiUsageCard({ tenantId }: { tenantId: string }) {
+  const [days, setDays] = useState<7 | 30 | 90>(30);
+  const [data, setData] = useState<AiUsageResp | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setData(null);
+    setErr(null);
+    const token = getAccessToken();
+    rpcQuery<AiUsageResp>('platform.tenant.aiUsage', { tenantId, days }, { token })
+      .then(setData)
+      .catch((e) => setErr(e instanceof Error ? e.message : 'Failed'));
+  }, [tenantId, days]);
+
+  const dollar = (cents: number): string =>
+    `$${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="flex items-center justify-between">
+          <CardTitle>AI usage</CardTitle>
+          <div className="flex items-center gap-1 rounded-[var(--radius-pill)] border border-[var(--color-border)] p-1 text-xs">
+            {([7, 30, 90] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDays(d)}
+                className={
+                  'rounded-[var(--radius-pill)] px-3 py-1 ' +
+                  (days === d
+                    ? 'bg-[var(--color-primary)] text-white'
+                    : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]')
+                }
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
+        {err ? (
+          <p className="mt-3 text-sm text-[var(--color-danger)]">{err}</p>
+        ) : data === null ? (
+          <Skeleton className="mt-4 h-32" />
+        ) : (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Tile label="Calls" value={data.callCount.toLocaleString()} />
+              <Tile label="Cost" value={dollar(data.totals.costCents)} />
+              <Tile
+                label="Input tokens"
+                value={data.totals.inputTokens.toLocaleString()}
+              />
+              <Tile
+                label="Output tokens"
+                value={data.totals.outputTokens.toLocaleString()}
+              />
+            </div>
+            {data.byFeature.length > 0 ? (
+              <div className="mt-6">
+                <div className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+                  By feature
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+                    <tr>
+                      <th className="py-1 text-left font-medium">Feature</th>
+                      <th className="py-1 text-right font-medium">Calls</th>
+                      <th className="py-1 text-right font-medium">Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--color-border-muted)]">
+                    {data.byFeature.map((r) => (
+                      <tr key={r.feature}>
+                        <td className="py-2">{r.feature}</td>
+                        <td className="py-2 text-right">{r.calls}</td>
+                        <td className="py-2 text-right tabular-nums">{dollar(r.costCents)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="mt-4 text-xs text-[var(--color-text-muted)]">
+                No AI activity in the last {days} days.
+              </p>
+            )}
+          </>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function Tile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+      <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
+        {label}
+      </div>
+      <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+const KNOWN_FLAGS: { key: string; label: string; detail: string }[] = [
+  { key: 'aiAgent', label: 'AI agent', detail: 'Daily missing-document follow-ups via Claude.' },
+  { key: 'whiteLabel', label: 'White-label', detail: 'Hide all OnsecBoad branding from firm UI + emails.' },
+  { key: 'customDomain', label: 'Custom domain', detail: 'Allow firm to host portal at their own subdomain.' },
+  { key: 'betaFeatures', label: 'Beta features', detail: 'Early access to features still under feature flag.' },
+];
+
+function PlatformControlsCard({
+  tenantId,
+  flags,
+  announcement,
+  onChanged,
+  onError,
+}: {
+  tenantId: string;
+  flags: Record<string, boolean>;
+  announcement: { message: string; level: 'info' | 'warning' | 'urgent' } | null;
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [annMessage, setAnnMessage] = useState(announcement?.message ?? '');
+  const [annLevel, setAnnLevel] = useState<'info' | 'warning' | 'urgent'>(
+    announcement?.level ?? 'info',
+  );
+
+  async function setFlag(key: string, value: boolean): Promise<void> {
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      await rpcMutation('platform.tenant.setFeatureFlag', { tenantId, key, value }, { token });
+      onChanged();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Set failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAnnouncement(clear: boolean): Promise<void> {
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      await rpcMutation(
+        'platform.tenant.setAnnouncement',
+        {
+          tenantId,
+          message: clear ? null : annMessage,
+          level: annLevel,
+        },
+        { token },
+      );
+      onChanged();
+      if (clear) setAnnMessage('');
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardTitle>Platform controls</CardTitle>
+        <CardBody className="mt-1 text-xs text-[var(--color-text-muted)]">
+          Onsective-only controls. Toggle features, post a banner the firm sees on every page.
+        </CardBody>
+
+        <div className="mt-4">
+          <div className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+            Feature flags
+          </div>
+          <div className="mt-2 divide-y divide-[var(--color-border-muted)]">
+            {KNOWN_FLAGS.map((f) => (
+              <label
+                key={f.key}
+                className="flex cursor-pointer items-start justify-between gap-3 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{f.label}</div>
+                  <div className="mt-0.5 text-xs text-[var(--color-text-muted)]">{f.detail}</div>
+                  <div className="mt-0.5 font-mono text-[10px] text-[var(--color-text-muted)]">
+                    {f.key}
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 cursor-pointer accent-[var(--color-primary)]"
+                  disabled={busy}
+                  checked={!!flags[f.key]}
+                  onChange={(e) => void setFlag(f.key, e.target.checked)}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <div className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+            Firm-wide announcement
+          </div>
+          <CardBody className="mt-1 text-xs text-[var(--color-text-muted)]">
+            Banner shown above the firm&rsquo;s top bar. Use sparingly.
+          </CardBody>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="sm:col-span-2">
+              <Label className="mb-1 block text-xs">Message</Label>
+              <Input
+                value={annMessage}
+                onChange={(e) => setAnnMessage(e.target.value)}
+                placeholder="Scheduled maintenance Sunday 2-4am ET — service may be slow."
+                maxLength={500}
+              />
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">Level</Label>
+              <select
+                value={annLevel}
+                onChange={(e) => setAnnLevel(e.target.value as 'info' | 'warning' | 'urgent')}
+                className="h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm"
+              >
+                <option value="info">Info (blue)</option>
+                <option value="warning">Warning (amber)</option>
+                <option value="urgent">Urgent (red)</option>
+              </select>
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            {announcement ? (
+              <Button variant="ghost" disabled={busy} onClick={() => void saveAnnouncement(true)}>
+                Clear banner
+              </Button>
+            ) : null}
+            <Button disabled={busy || annMessage.trim().length === 0} onClick={() => void saveAnnouncement(false)}>
+              {announcement ? 'Update' : 'Post'} announcement
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </div>
   );
 }
