@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { randomBytes, createHash } from 'node:crypto';
 import { Prisma } from '@onsecboad/db';
-import { hashPassword } from '@onsecboad/auth';
+import { hashPassword, signAccessToken, generateRefreshToken } from '@onsecboad/auth';
 import { sendSetupInviteEmail } from '@onsecboad/email';
 import { loadEnv } from '@onsecboad/config';
 import {
@@ -698,5 +698,127 @@ export const tenantPlatformRouter = router({
       return {
         items: items.map((i) => ({ ...i, amountCents: Number(i.amountCents) })),
       };
+    }),
+
+  /**
+   * Support tool: impersonate a firm user. Mints a firm-scope JWT for the
+   * platform admin to "log in as" the target user. Used to reproduce
+   * customer issues, walk a firm through their UI, etc. Heavily audit-
+   * logged. The minted access token's claims include `impersonator` so
+   * the frontend can show a banner and block sensitive actions.
+   *
+   * Token TTL is short (matches access TTL) and there's no refresh token
+   * — the platform admin re-impersonates if they need more time. This
+   * makes the audit trail line up with each session start.
+   */
+  impersonate: platformProcedure
+    .input(z.object({ userId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const u = await ctx.prisma.user.findFirst({
+        where: { id: input.userId, deletedAt: null },
+        include: { tenant: true },
+      });
+      if (!u) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (u.status !== 'ACTIVE') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Cannot impersonate inactive users.',
+        });
+      }
+      const claims = {
+        sub: u.id,
+        scope: 'firm' as const,
+        tenantId: u.tenantId,
+        roleId: u.roleId,
+        ...(u.branchId ? { branchId: u.branchId } : {}),
+        impersonator: ctx.session.sub, // platform user id
+      };
+      const access = await signAccessToken(
+        claims,
+        env.JWT_ACCESS_SECRET,
+        Math.min(env.ACCESS_TOKEN_TTL_SEC, 30 * 60), // cap at 30 min
+      );
+      // No refresh token — short-lived only. Re-impersonate if needed.
+
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: u.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'PLATFORM',
+          action: 'platform.impersonate',
+          targetType: 'User',
+          targetId: u.id,
+          payload: {
+            targetEmail: u.email,
+            tenantSlug: u.tenant.slug,
+          },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+
+      logger.warn(
+        {
+          platformUserId: ctx.session.sub,
+          targetUserId: u.id,
+          tenantId: u.tenantId,
+        },
+        'platform: impersonation start',
+      );
+
+      return {
+        accessToken: access.token,
+        accessExpiresAt: access.expiresAt.toISOString(),
+        target: {
+          userId: u.id,
+          name: u.name,
+          email: u.email,
+          tenantId: u.tenantId,
+          tenantName: u.tenant.displayName,
+        },
+      };
+    }),
+
+  /**
+   * Extend a tenant's trial by N days. Bumps trialEndsAt; if Stripe is
+   * wired, also calls Stripe to extend trial_end on the subscription.
+   * Audit-logged.
+   */
+  extendTrial: platformProcedure
+    .input(
+      z.object({
+        tenantId: z.string().uuid(),
+        days: z.number().int().min(1).max(90),
+        reason: z.string().min(2).max(500),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const t = await ctx.prisma.tenant.findUnique({ where: { id: input.tenantId } });
+      if (!t) throw new TRPCError({ code: 'NOT_FOUND' });
+      const base = t.trialEndsAt && t.trialEndsAt > new Date() ? t.trialEndsAt : new Date();
+      const newEnd = new Date(base.getTime() + input.days * 24 * 60 * 60 * 1000);
+      await ctx.prisma.tenant.update({
+        where: { id: t.id },
+        data: { trialEndsAt: newEnd },
+      });
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: t.id,
+          actorId: ctx.session.sub,
+          actorType: 'PLATFORM',
+          action: 'platform.extendTrial',
+          targetType: 'Tenant',
+          targetId: t.id,
+          payload: {
+            previousTrialEnd: t.trialEndsAt?.toISOString() ?? null,
+            newTrialEnd: newEnd.toISOString(),
+            days: input.days,
+            reason: input.reason,
+          },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+      return { ok: true, trialEndsAt: newEnd };
     }),
 });

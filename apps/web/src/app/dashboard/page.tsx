@@ -117,7 +117,30 @@ export default function DashboardPage() {
   );
 }
 
+type PlatformKpis = {
+  firmsActive: number;
+  firmsProvisioning: number;
+  firmsSuspended: number;
+  firmsCanceled: number;
+  firmsOnTrial: number;
+  seatsTotal: number;
+  mrrCents: number;
+  arrCents: number;
+  planMix: { code: string; firms: number; seats: number; mrrCents: number }[];
+};
+
 function PlatformDashboard({ me }: { me: Extract<Me, { kind: 'platform' }> }) {
+  const [kpis, setKpis] = useState<PlatformKpis | null>(null);
+  useEffect(() => {
+    const token = getAccessToken();
+    rpcQuery<PlatformKpis>('platform.kpi.dashboard', undefined, { token })
+      .then(setKpis)
+      .catch(() => setKpis(null));
+  }, []);
+  const dollar = (cents: number): string =>
+    `$${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  const fmt = (n: number | undefined): string => (n === undefined ? '—' : n.toLocaleString());
+
   return (
     <div className="space-y-8">
       <HeroBanner
@@ -127,27 +150,87 @@ function PlatformDashboard({ me }: { me: Extract<Me, { kind: 'platform' }> }) {
       />
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Active firms" value="0" delta={{ value: 'No firms yet', positive: false }} icon={Building2} />
-        <StatCard label="Seats sold" value="0" icon={Users} tone="info" />
-        <StatCard label="MRR (CAD)" value="$0" icon={CreditCard} tone="accent" />
-        <StatCard label="Open tickets" value="0" icon={Activity} tone="success" />
+        <StatCard
+          label="Active firms"
+          value={fmt(kpis?.firmsActive)}
+          icon={Building2}
+          delta={
+            kpis
+              ? {
+                  value: `${kpis.firmsOnTrial} on trial · ${kpis.firmsSuspended} suspended`,
+                  positive: kpis.firmsActive > 0,
+                }
+              : undefined
+          }
+        />
+        <StatCard label="Seats sold" value={fmt(kpis?.seatsTotal)} icon={Users} tone="info" />
+        <StatCard
+          label="MRR (CAD)"
+          value={kpis ? dollar(kpis.mrrCents) : '—'}
+          icon={CreditCard}
+          tone="accent"
+          delta={kpis ? { value: `ARR ${dollar(kpis.arrCents)}`, positive: true } : undefined}
+        />
+        <StatCard
+          label="Provisioning"
+          value={fmt(kpis?.firmsProvisioning)}
+          icon={Activity}
+          tone="success"
+        />
       </section>
+
+      {kpis && kpis.planMix.length > 0 ? (
+        <section>
+          <Card>
+            <CardTitle>Plan mix</CardTitle>
+            <table className="mt-4 w-full text-sm">
+              <thead className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+                <tr>
+                  <th className="py-2 text-left font-medium">Plan</th>
+                  <th className="py-2 text-right font-medium">Firms</th>
+                  <th className="py-2 text-right font-medium">Seats</th>
+                  <th className="py-2 text-right font-medium">MRR</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--color-border-muted)]">
+                {kpis.planMix.map((p) => (
+                  <tr key={p.code}>
+                    <td className="py-2.5 font-medium">{p.code}</td>
+                    <td className="py-2.5 text-right">{p.firms}</td>
+                    <td className="py-2.5 text-right">{p.seats}</td>
+                    <td className="py-2.5 text-right">{dollar(p.mrrCents)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </section>
+      ) : null}
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardTitle>Get started</CardTitle>
-          <CardBody className="mt-4 space-y-3 text-sm text-[var(--color-text-muted)]">
-            Phase 1 will surface the wizard to provision new law firms with Stripe billing
-            wired in. Today, you can already query the API and audit log.
+          <CardTitle>Operate</CardTitle>
+          <CardBody className="mt-2 text-sm text-[var(--color-text-muted)]">
+            Provision firms, watch revenue, audit privileged actions.
           </CardBody>
           <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Link
-              href="/firms"
+              href="/p/firms"
               className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4 transition-colors hover:bg-[var(--color-surface-muted)]"
             >
               <div>
                 <div className="text-sm font-medium">Law firms</div>
-                <div className="text-xs text-[var(--color-text-muted)]">List, suspend, audit</div>
+                <div className="text-xs text-[var(--color-text-muted)]">List, suspend, impersonate</div>
+              </div>
+              <ArrowRight size={16} />
+            </Link>
+            <Link
+              href="/billing"
+              className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4 transition-colors hover:bg-[var(--color-surface-muted)]"
+            >
+              <div>
+                <div className="text-sm font-medium">Billing</div>
+                <div className="text-xs text-[var(--color-text-muted)]">Cross-firm invoices, revenue</div>
               </div>
               <ArrowRight size={16} />
             </Link>
@@ -158,6 +241,16 @@ function PlatformDashboard({ me }: { me: Extract<Me, { kind: 'platform' }> }) {
               <div>
                 <div className="text-sm font-medium">Audit log</div>
                 <div className="text-xs text-[var(--color-text-muted)]">Every privileged action</div>
+              </div>
+              <ArrowRight size={16} />
+            </Link>
+            <Link
+              href="/p/firms/new"
+              className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] p-4 transition-colors hover:bg-[var(--color-surface-muted)]"
+            >
+              <div>
+                <div className="text-sm font-medium">Provision a firm</div>
+                <div className="text-xs text-[var(--color-text-muted)]">New law firm tenant</div>
               </div>
               <ArrowRight size={16} />
             </Link>

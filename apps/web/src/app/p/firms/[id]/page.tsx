@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button, Card, CardTitle, Input, Label, Skeleton, Spinner, ThemeProvider } from '@onsecboad/ui';
 import { rpcMutation, rpcQuery } from '../../../../lib/api';
-import { getAccessToken } from '../../../../lib/session';
+import { getAccessToken, setAccessToken } from '../../../../lib/session';
 import { AppShell, type ShellUser } from '../../../../components/AppShell';
 
 type TenantStatus = 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'CANCELED';
@@ -182,6 +182,53 @@ export default function FirmDetailPage({ params }: { params: Promise<{ id: strin
     }
   }
 
+  async function impersonate(userId: string): Promise<void> {
+    if (typeof window === 'undefined') return;
+    if (
+      !confirm(
+        "You're about to sign in as this firm user. Every action is logged against your platform-admin account. Continue?",
+      )
+    )
+      return;
+    try {
+      const token = getAccessToken();
+      const r = await rpcMutation<{
+        accessToken: string;
+        target: { tenantName: string; name: string; email: string };
+      }>('platform.tenant.impersonate', { userId }, { token });
+      // Replace token in browser storage and reload into the firm's
+      // dashboard. The minted JWT carries `impersonator` so the firm
+      // shell will show a banner.
+      sessionStorage.setItem(
+        'onsec.impersonating',
+        JSON.stringify({
+          target: r.target,
+          startedAt: new Date().toISOString(),
+        }),
+      );
+      setAccessToken(r.accessToken);
+      window.location.href = '/dashboard';
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impersonate failed');
+    }
+  }
+
+  async function extendTrial(): Promise<void> {
+    if (typeof window === 'undefined' || !firm) return;
+    const days = window.prompt('Extend trial by how many days? (1–90)', '14');
+    if (!days) return;
+    const reason = window.prompt('Reason (logged):', 'Customer requested extra time');
+    if (!reason) return;
+    void action(`Trial extended by ${days} days.`, async () => {
+      const token = getAccessToken();
+      return rpcMutation(
+        'platform.tenant.extendTrial',
+        { tenantId: firm.id, days: Number(days), reason },
+        { token },
+      );
+    });
+  }
+
   if (!me || !firm) {
     return (
       <main className="grid min-h-screen grid-cols-[240px_1fr]">
@@ -338,13 +385,28 @@ export default function FirmDetailPage({ params }: { params: Promise<{ id: strin
                                   )}
                                 </div>
                               </div>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setEditAdminId(u.id)}
-                              >
-                                <Pencil size={12} /> Edit
-                              </Button>
+                              <div className="flex shrink-0 flex-col gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setEditAdminId(u.id)}
+                                >
+                                  <Pencil size={12} /> Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={u.status !== 'ACTIVE'}
+                                  title={
+                                    u.status !== 'ACTIVE'
+                                      ? 'Only active users can be impersonated'
+                                      : 'Sign in as this user — heavily audited'
+                                  }
+                                  onClick={() => impersonate(u.id)}
+                                >
+                                  Impersonate
+                                </Button>
+                              </div>
                             </div>
                           </li>
                         ))}
@@ -474,6 +536,9 @@ export default function FirmDetailPage({ params }: { params: Promise<{ id: strin
                     }
                   >
                     <RotateCcw size={14} /> Reconcile seats
+                  </Button>
+                  <Button variant="secondary" disabled={busy} onClick={extendTrial}>
+                    Extend trial
                   </Button>
                   {firm.status !== 'CANCELED' ? (
                     <Button

@@ -217,10 +217,51 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
 
       {/* ── Main column ─────────────────────────────────────────────────── */}
       <div className="flex min-h-screen flex-col">
+        <ImpersonationBanner />
         <TopBar user={user} onSignOut={signOut} onOpenMenu={() => setMobileOpen(true)} />
         <main className="flex-1 px-4 py-6 sm:px-6 md:px-8 md:py-8">{children}</main>
       </div>
       {user.scope === 'firm' ? <Toaster /> : null}
+    </div>
+  );
+}
+
+/**
+ * Red banner shown when the current session was minted via the platform-
+ * admin impersonate flow. Reads the sessionStorage flag set by
+ * /p/firms/[id] when an admin clicks Impersonate. Clicking "End" wipes
+ * the access token + flag and bounces back to /sign-in so the platform
+ * admin re-authenticates as themselves.
+ */
+function ImpersonationBanner() {
+  const [info, setInfo] = useState<{ tenantName: string; name: string; email: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = sessionStorage.getItem('onsec.impersonating');
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as { target: typeof info };
+      setInfo(parsed.target);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  if (!info) return null;
+  function endSession(): void {
+    if (typeof window === 'undefined') return;
+    sessionStorage.removeItem('onsec.impersonating');
+    setAccessToken(null);
+    window.location.href = '/sign-in';
+  }
+  return (
+    <div className="bg-[var(--color-danger)] px-4 py-2 text-center text-xs text-white">
+      <span className="font-semibold">Impersonating</span> {info.name} ({info.email}) at{' '}
+      {info.tenantName}. Every action is logged.{' '}
+      <button onClick={endSession} className="ml-2 font-semibold underline">
+        End session
+      </button>
     </div>
   );
 }

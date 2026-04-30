@@ -14,16 +14,108 @@ export const platformRouter = router({
     // useful for verification and for running after an incident.
     reconcileSeats: platformProcedure.mutation(async () => reconcileAllSeats()),
   }),
+
+  /**
+   * Cross-tenant headline metrics for the platform dashboard. No date
+   * range — these are point-in-time counters. MRR is computed from
+   * active subscription rows × per-seat price × seat count, so
+   * pricePerSeatCents must stay consistent on the Plan rows.
+   */
+  kpi: router({
+    dashboard: platformProcedure.query(async ({ ctx }) => {
+      const [
+        firmsActive,
+        firmsProvisioning,
+        firmsSuspended,
+        firmsCanceled,
+        firmsOnTrial,
+        seatsTotal,
+        firmsByPlan,
+      ] = await Promise.all([
+        ctx.prisma.tenant.count({ where: { status: 'ACTIVE', deletedAt: null } }),
+        ctx.prisma.tenant.count({ where: { status: 'PROVISIONING', deletedAt: null } }),
+        ctx.prisma.tenant.count({ where: { status: 'SUSPENDED', deletedAt: null } }),
+        ctx.prisma.tenant.count({ where: { status: 'CANCELED', deletedAt: null } }),
+        ctx.prisma.tenant.count({
+          where: {
+            status: 'ACTIVE',
+            deletedAt: null,
+            trialEndsAt: { gt: new Date() },
+          },
+        }),
+        ctx.prisma.tenant.aggregate({
+          where: { status: 'ACTIVE', deletedAt: null },
+          _sum: { seatCount: true },
+        }),
+        ctx.prisma.tenant.findMany({
+          where: { status: 'ACTIVE', deletedAt: null },
+          select: { seatCount: true, plan: { select: { code: true, pricePerSeatCents: true } } },
+        }),
+      ]);
+
+      let mrrCents = 0n;
+      const byPlan: Record<string, { firms: number; seats: number; mrrCents: bigint }> = {};
+      for (const t of firmsByPlan) {
+        if (!t.plan) continue;
+        const code = t.plan.code;
+        const seats = BigInt(t.seatCount);
+        const subtotal = t.plan.pricePerSeatCents * seats;
+        mrrCents += subtotal;
+        if (!byPlan[code]) byPlan[code] = { firms: 0, seats: 0, mrrCents: 0n };
+        byPlan[code].firms++;
+        byPlan[code].seats += t.seatCount;
+        byPlan[code].mrrCents += subtotal;
+      }
+
+      // BigInt isn't JSON-serializable; convert to number (cents fit easily).
+      const mrr = Number(mrrCents);
+      const planMix = Object.entries(byPlan).map(([code, v]) => ({
+        code,
+        firms: v.firms,
+        seats: v.seats,
+        mrrCents: Number(v.mrrCents),
+      }));
+
+      return {
+        firmsActive,
+        firmsProvisioning,
+        firmsSuspended,
+        firmsCanceled,
+        firmsOnTrial,
+        seatsTotal: seatsTotal._sum.seatCount ?? 0,
+        mrrCents: mrr,
+        arrCents: mrr * 12,
+        planMix,
+      };
+    }),
+  }),
+
   audit: router({
     list: platformProcedure
-      .input(z.object({ page: z.number().int().min(1).default(1) }))
+      .input(
+        z.object({
+          page: z.number().int().min(1).default(1),
+          tenantId: z.string().uuid().optional(),
+          action: z.string().max(120).optional(),
+          actorType: z.enum(['PLATFORM', 'USER', 'CLIENT', 'SYSTEM']).optional(),
+        }),
+      )
       .query(async ({ ctx, input }) => {
-        const items = await ctx.prisma.auditLog.findMany({
-          orderBy: { createdAt: 'desc' },
-          take: 50,
-          skip: (input.page - 1) * 50,
-        });
-        return { items };
+        const where = {
+          ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+          ...(input.action ? { action: { contains: input.action } } : {}),
+          ...(input.actorType ? { actorType: input.actorType } : {}),
+        };
+        const [items, total] = await Promise.all([
+          ctx.prisma.auditLog.findMany({
+            where,
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+            skip: (input.page - 1) * 50,
+          }),
+          ctx.prisma.auditLog.count({ where }),
+        ]);
+        return { items, total, page: input.page, pageSize: 50 };
       }),
 
     byTenant: platformProcedure
@@ -37,5 +129,42 @@ export const platformRouter = router({
         });
         return { items };
       }),
+  }),
+
+  /** Cross-firm billing queries. */
+  billing: router({
+    overview: platformProcedure.query(async ({ ctx }) => {
+      const [recentInvoices, totalsByStatus] = await Promise.all([
+        ctx.prisma.subscriptionInvoice.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          include: { tenant: { select: { id: true, displayName: true, slug: true } } },
+        }),
+        ctx.prisma.subscriptionInvoice.groupBy({
+          by: ['status'],
+          _count: { _all: true },
+          _sum: { amountCents: true },
+        }),
+      ]);
+      return {
+        recentInvoices: recentInvoices.map((i) => ({
+          id: i.id,
+          stripeInvoiceId: i.stripeInvoiceId,
+          tenant: i.tenant,
+          amountCents: Number(i.amountCents),
+          currency: i.currency,
+          periodStart: i.periodStart,
+          periodEnd: i.periodEnd,
+          seatCount: i.seatCount,
+          status: i.status,
+          createdAt: i.createdAt,
+        })),
+        totalsByStatus: totalsByStatus.map((g) => ({
+          status: g.status,
+          count: g._count._all,
+          amountCents: Number(g._sum.amountCents ?? 0n),
+        })),
+      };
+    }),
   }),
 });
