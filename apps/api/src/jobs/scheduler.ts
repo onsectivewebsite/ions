@@ -12,6 +12,7 @@ import { loadEnv } from '@onsecboad/config';
 import { logger } from '../logger.js';
 import { reconcileAllSeats } from './seat-reconcile.js';
 import { aiAgentTick } from './ai-agent-tick.js';
+import { dataPurgeTick } from './data-purge.js';
 
 const env = loadEnv();
 
@@ -61,5 +62,25 @@ export function startScheduledJobs(): void {
       }
     });
     logger.info({ schedule: env.CRON_AI_AGENT_TICK }, 'cron: ai agent tick scheduled');
+  }
+
+  // Phase 10.1 — daily PIPEDA data purge.
+  if (!cron.validate(env.CRON_DATA_PURGE)) {
+    logger.error({ expr: env.CRON_DATA_PURGE }, 'invalid CRON_DATA_PURGE expression');
+  } else {
+    cron.schedule(env.CRON_DATA_PURGE, async () => {
+      const start = Date.now();
+      logger.info('cron: data purge starting');
+      try {
+        const r = await dataPurgeTick();
+        logger.info(
+          { ...r, ms: Date.now() - start },
+          `cron: data purge done — scanned ${r.scanned}, purged ${r.purged}, errors ${r.errors}`,
+        );
+      } catch (e) {
+        logger.error({ err: e }, 'cron: data purge threw');
+      }
+    });
+    logger.info({ schedule: env.CRON_DATA_PURGE }, 'cron: data purge scheduled');
   }
 }

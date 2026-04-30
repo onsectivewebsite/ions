@@ -34,6 +34,15 @@ export const smsRouter = router({
           });
         }
       }
+      // Phase 10.1 — CASL suppression check. Tenant-wide; survives lead
+      // churn since it keys off the raw phone number.
+      const { isSuppressed } = await import('../lib/suppression.js');
+      if (await isSuppressed(ctx.prisma, ctx.tenantId, 'sms', input.toNumber)) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'This number is on the firm-wide suppression list.',
+        });
+      }
       const result = await sendSms({ creds, to: input.toNumber, body: input.body });
       const log = await ctx.prisma.smsLog.create({
         data: {

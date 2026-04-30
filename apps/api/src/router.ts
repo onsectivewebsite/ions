@@ -38,6 +38,8 @@ import { aiSettingsRouter } from './routers/ai-settings.js';
 import { aiUsageRouter } from './routers/ai-usage.js';
 import { aiAgentRouter } from './routers/ai-agent.js';
 import { pushRouter } from './routers/push.js';
+import { dataRightsRouter } from './routers/data-rights.js';
+import { suppressionRouter } from './routers/suppression.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -80,6 +82,8 @@ export const appRouter = router({
   aiUsage: aiUsageRouter,
   aiAgent: aiAgentRouter,
   push: pushRouter,
+  dataRights: dataRightsRouter,
+  suppression: suppressionRouter,
 });
 
 export type AppRouter = typeof appRouter;

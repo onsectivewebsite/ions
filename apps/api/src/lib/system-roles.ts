@@ -48,6 +48,11 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       aiSettings: { read: 'branch', write: false, delete: false },
       invoices: { read: 'branch', write: 'branch', delete: false },
       messages: { read: 'branch', write: 'branch', delete: false },
+      // Phase 10.1 — compliance surfaces. Branch managers can SEE the
+      // suppression list (read) but only firm admins can mutate it.
+      // Right-to-deletion / legal-hold is firm-admin-only via _all.
+      suppression: { read: 'branch', write: false, delete: false },
+      dataRights: { read: false, write: false, delete: false },
       // Phase 2 administrative scopes — branch managers can run their branch.
       users: { read: 'branch', write: 'branch', delete: 'branch' },
       branches: { read: 'branch', write: false, delete: false },

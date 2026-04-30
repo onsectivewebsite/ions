@@ -52,6 +52,8 @@ const SYSTEM_ROLES: Array<{ name: string; permissions: Prisma.InputJsonValue }> 
       aiSettings: { read: 'branch', write: false, delete: false },
       invoices: { read: 'branch', write: 'branch', delete: false },
       messages: { read: 'branch', write: 'branch', delete: false },
+      suppression: { read: 'branch', write: false, delete: false },
+      dataRights: { read: false, write: false, delete: false },
       users: { read: 'branch', write: 'branch', delete: 'branch' },
       branches: { read: 'branch', write: false, delete: false },
       audit: { read: 'branch', write: false, delete: false },

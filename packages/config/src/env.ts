@@ -69,6 +69,9 @@ const envSchema = z.object({
   // (early morning North America) which works for typical Canadian
   // immigration firm hours.
   CRON_AI_AGENT_TICK: z.string().default('0 14 * * *'),
+  // Phase 10.1 — daily PIPEDA data purge. 03:00 UTC keeps it off the
+  // hot path for North-American business hours.
+  CRON_DATA_PURGE: z.string().default('0 3 * * *'),
 
   // Phase 9.5 — Expo Push delivery. Default true so dev doesn't fan out
   // to phantom devices; flip to false in prod once devices are wired.

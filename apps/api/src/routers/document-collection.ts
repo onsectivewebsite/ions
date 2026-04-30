@@ -192,32 +192,58 @@ export const documentCollectionRouter = router({
       let pushed: { mode?: string; ok: boolean; error?: string } = { ok: true };
 
       if (input.via === 'sms' && c.client.phone) {
-        try {
-          const creds = await getTwilioCreds(ctx.prisma, ctx.tenantId);
-          const r = await sendSms({
-            creds,
-            to: c.client.phone,
-            body: `${c.tenant.displayName}: please upload your documents at ${url} (expires in ${input.ttlDays} days).`,
-          });
-          pushed = { mode: r.mode, ok: true };
-        } catch (e) {
-          pushed = { ok: false, error: e instanceof Error ? e.message : 'sms failed' };
-          logger.warn({ err: e, caseId: c.id }, 'document collection SMS failed');
+        // Phase 10.1 — suppression-list short-circuit. Logs as a soft
+        // skip so the firm can see why the link wasn't SMS'd.
+        const { isSuppressed } = await import('../lib/suppression.js');
+        const suppressed = await isSuppressed(
+          ctx.prisma,
+          ctx.tenantId,
+          'sms',
+          c.client.phone,
+        );
+        if (suppressed) {
+          pushed = { ok: false, error: 'recipient on SMS suppression list' };
+          logger.info({ caseId: c.id, phone: c.client.phone }, 'doc collection SMS skipped — suppressed');
+        } else {
+          try {
+            const creds = await getTwilioCreds(ctx.prisma, ctx.tenantId);
+            const r = await sendSms({
+              creds,
+              to: c.client.phone,
+              body: `${c.tenant.displayName}: please upload your documents at ${url} (expires in ${input.ttlDays} days).`,
+            });
+            pushed = { mode: r.mode, ok: true };
+          } catch (e) {
+            pushed = { ok: false, error: e instanceof Error ? e.message : 'sms failed' };
+            logger.warn({ err: e, caseId: c.id }, 'document collection SMS failed');
+          }
         }
       }
       if (input.via === 'email' && c.client.email) {
-        try {
-          const text = `Hello ${c.client.firstName ?? ''},\n\nPlease upload your documents at:\n${url}\n\nThis link expires in ${input.ttlDays} days.\n\n— ${c.tenant.displayName}`;
-          await sendEmail({
-            to: c.client.email,
-            subject: `${c.tenant.displayName} — please upload your documents`,
-            text,
-            html: `<p>Hello ${c.client.firstName ?? ''},</p><p>Please upload your documents at:</p><p><a href="${url}">${url}</a></p><p>This link expires in ${input.ttlDays} days.</p><p>— ${c.tenant.displayName}</p>`,
-          });
-          pushed = { ok: true };
-        } catch (e) {
-          pushed = { ok: false, error: e instanceof Error ? e.message : 'email failed' };
-          logger.warn({ err: e, caseId: c.id }, 'document collection email failed');
+        const { isSuppressed } = await import('../lib/suppression.js');
+        const suppressed = await isSuppressed(
+          ctx.prisma,
+          ctx.tenantId,
+          'email',
+          c.client.email,
+        );
+        if (suppressed) {
+          pushed = { ok: false, error: 'recipient on email suppression list' };
+          logger.info({ caseId: c.id, email: c.client.email }, 'doc collection email skipped — suppressed');
+        } else {
+          try {
+            const text = `Hello ${c.client.firstName ?? ''},\n\nPlease upload your documents at:\n${url}\n\nThis link expires in ${input.ttlDays} days.\n\n— ${c.tenant.displayName}`;
+            await sendEmail({
+              to: c.client.email,
+              subject: `${c.tenant.displayName} — please upload your documents`,
+              text,
+              html: `<p>Hello ${c.client.firstName ?? ''},</p><p>Please upload your documents at:</p><p><a href="${url}">${url}</a></p><p>This link expires in ${input.ttlDays} days.</p><p>— ${c.tenant.displayName}</p>`,
+            });
+            pushed = { ok: true };
+          } catch (e) {
+            pushed = { ok: false, error: e instanceof Error ? e.message : 'email failed' };
+            logger.warn({ err: e, caseId: c.id }, 'document collection email failed');
+          }
         }
       }
 

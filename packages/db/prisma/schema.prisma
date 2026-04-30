@@ -110,6 +110,8 @@ model Tenant {
   aiAgentRuns                AiAgentRun[]
   // Phase 9.5 back-relations
   pushDevices                PushDevice[]
+  // Phase 10.1 back-relations
+  suppression                SuppressionEntry[]
 
   @@index([status])
 }
@@ -553,6 +555,14 @@ model Client {
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   deletedAt       DateTime?
+  // Phase 10.1 PIPEDA right-to-deletion:
+  //   purgeAt is set when the firm initiates deletion; the daily cron
+  //   anonymises PII + hard-deletes sub-records once `now() >= purgeAt`
+  //   AND legalHoldUntil is null (or in the past). Setting purgeAt does
+  //   NOT immediately wipe — there's a 30-day grace by default.
+  purgeAt         DateTime?
+  legalHoldUntil  DateTime?
+  deletionReason  String?
 
   intakeSubmissions IntakeSubmission[]
   appointments      Appointment[]
@@ -1410,4 +1420,28 @@ model PushDevice {
   @@index([tenantId, variant])
   @@index([userId])
   @@index([clientPortalAccountId])
+}
+
+// ─── Phase 10.1: CASL suppression list ──────────────────────────────────
+//
+// Per-tenant. Honoured by every outbound channel (Twilio SMS, transactional
+// email). Distinct from per-Lead `dncFlag` — suppression is keyed on the
+// raw value (E.164 phone OR lower-cased email), so it survives lead/case
+// churn and can be added on a complaint that doesn't have a Lead row yet.
+//
+// `source` records who/what added it: 'unsubscribe' | 'complaint' | 'admin'
+// | 'bounce'. The suppression UI surfaces this so admins can audit.
+model SuppressionEntry {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  channel     String   // 'sms' | 'email'
+  value       String   // E.164 phone OR lower-cased email — keying done at insert time
+  reason      String?
+  source      String   @default("admin") // 'unsubscribe' | 'complaint' | 'admin' | 'bounce'
+  addedById   String?  @db.Uuid          // null = system (e.g. CASL unsubscribe link click)
+  addedAt     DateTime @default(now())
+
+  @@unique([tenantId, channel, value])
+  @@index([tenantId, channel])
 }
