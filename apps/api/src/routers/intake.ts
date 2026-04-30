@@ -12,10 +12,31 @@
  */
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import { createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '@onsecboad/db';
+import { sendIntakeRequestEmail } from '@onsecboad/email';
+import { loadEnv } from '@onsecboad/config';
 import { router } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
 import { logger } from '../logger.js';
+
+const env = loadEnv();
+
+function hashToken(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex');
+}
+
+function pickBrand(t: {
+  displayName: string;
+  branding: unknown;
+}): { productName: string; primaryHex?: string; logoUrl?: string | null } {
+  const b = (t.branding as Record<string, unknown> | null | undefined) ?? {};
+  return {
+    productName: t.displayName,
+    primaryHex: typeof b.customPrimary === 'string' ? b.customPrimary : undefined,
+    logoUrl: typeof b.logoUrl === 'string' ? b.logoUrl : null,
+  };
+}
 
 type FieldDef = {
   key: string;
@@ -228,6 +249,228 @@ export const intakeRouter = router({
       });
       if (!sub) throw new TRPCError({ code: 'NOT_FOUND' });
       return sub;
+    }),
+
+  /**
+   * Issue a public intake-form invite. Creates an IntakeRequest with a
+   * fresh public token and (when sentVia=email) emails the recipient a
+   * branded link. Returns the publicUrl so the caller can also display
+   * a QR code or copy-button.
+   */
+  createRequest: requirePermission('intake', 'write')
+    .input(
+      z.object({
+        templateId: z.string().uuid(),
+        leadId: z.string().uuid().optional(),
+        clientId: z.string().uuid().optional(),
+        recipientName: z.string().max(200).optional(),
+        recipientEmail: z.string().email().optional(),
+        recipientPhone: z.string().max(40).optional(),
+        sentVia: z.enum(['email', 'sms', 'qr', 'staff']),
+        ttlDays: z.number().int().min(1).max(60).default(14),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!input.leadId && !input.clientId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Provide a leadId or clientId.',
+        });
+      }
+      const tpl = await ctx.prisma.intakeFormTemplate.findFirst({
+        where: { id: input.templateId, tenantId: ctx.tenantId, isActive: true },
+      });
+      if (!tpl) throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not active' });
+
+      // Mint a fresh token (32 bytes ≈ 256 bits, base64url).
+      const tokenPlain = randomBytes(32).toString('base64url');
+      const tokenHash = hashToken(tokenPlain);
+      const expiresAt = new Date(Date.now() + input.ttlDays * 24 * 60 * 60 * 1000);
+
+      const req = await ctx.prisma.intakeRequest.create({
+        data: {
+          tenantId: ctx.tenantId,
+          templateId: tpl.id,
+          leadId: input.leadId ?? null,
+          clientId: input.clientId ?? null,
+          recipientName: input.recipientName ?? null,
+          recipientEmail: input.recipientEmail ?? null,
+          recipientPhone: input.recipientPhone ?? null,
+          sentVia: input.sentVia,
+          publicTokenHash: tokenHash,
+          publicTokenExpiresAt: expiresAt,
+          createdBy: ctx.session.sub,
+        },
+      });
+
+      const url = `${env.APP_URL.replace(/\/$/, '')}/intake/${tokenPlain}`;
+
+      // Best-effort email delivery when sentVia=email and we have an address.
+      let emailSent = false;
+      let emailError: string | null = null;
+      if (input.sentVia === 'email' && input.recipientEmail) {
+        try {
+          const tenant = await ctx.prisma.tenant.findUnique({
+            where: { id: ctx.tenantId },
+            select: { displayName: true, branding: true },
+          });
+          const brand = tenant
+            ? pickBrand(tenant)
+            : { productName: 'OnsecBoad' };
+          const result = await sendIntakeRequestEmail({
+            to: input.recipientEmail,
+            recipientName: input.recipientName ?? 'there',
+            firmName: tenant?.displayName ?? 'Your firm',
+            templateName: tpl.name,
+            url,
+            ttlDays: input.ttlDays,
+            brand,
+          });
+          if (result.ok) {
+            emailSent = true;
+          } else {
+            emailError = result.error ?? 'unknown';
+          }
+        } catch (e) {
+          emailError = e instanceof Error ? e.message : 'send failed';
+        }
+      }
+
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'USER',
+          action: 'intake.createRequest',
+          targetType: 'IntakeRequest',
+          targetId: req.id,
+          payload: {
+            templateId: tpl.id,
+            leadId: input.leadId ?? null,
+            clientId: input.clientId ?? null,
+            sentVia: input.sentVia,
+            emailSent,
+          },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+
+      logger.info(
+        { tenantId: ctx.tenantId, requestId: req.id, sentVia: input.sentVia, emailSent },
+        'intake request issued',
+      );
+
+      return {
+        id: req.id,
+        publicUrl: url,
+        publicToken: tokenPlain,
+        expiresAt,
+        emailSent,
+        emailError,
+      };
+    }),
+
+  /** List all intake requests for a lead or client. Most recent first. */
+  listRequestsForLead: requirePermission('intake', 'read')
+    .input(
+      z.object({
+        leadId: z.string().uuid().optional(),
+        clientId: z.string().uuid().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      if (!input.leadId && !input.clientId) return [];
+      return ctx.prisma.intakeRequest.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          ...(input.leadId ? { leadId: input.leadId } : {}),
+          ...(input.clientId ? { clientId: input.clientId } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          template: { select: { id: true, name: true, caseType: true } },
+          submission: { select: { id: true, submittedAt: true, lockedAt: true } },
+        },
+      });
+    }),
+
+  /** Cancel an unfilled request. Filled requests can't be cancelled. */
+  cancelRequest: requirePermission('intake', 'write')
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const r = await ctx.prisma.intakeRequest.findFirst({
+        where: { id: input.id, tenantId: ctx.tenantId },
+      });
+      if (!r) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (r.filledAt) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Already filled — cancel is no-op.',
+        });
+      }
+      await ctx.prisma.intakeRequest.update({
+        where: { id: r.id },
+        data: { cancelledAt: new Date() },
+      });
+      return { ok: true };
+    }),
+
+  /**
+   * Unlock a filled IntakeSubmission so the client can edit again. Only
+   * firm admin or branch manager. Audit-logged. Re-locks on next submit.
+   */
+  unlock: requirePermission('intake', 'write')
+    .input(z.object({ submissionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      // Tighten gate beyond the 'intake.write' check — only roles that
+      // are firm-admin or branch-manager can unlock.
+      const role = await ctx.prisma.user.findUnique({
+        where: { id: ctx.session.sub },
+        include: { role: true },
+      });
+      const roleName = role?.role.name ?? '';
+      const allowed =
+        /firm.?admin/i.test(roleName) || /branch.?manager/i.test(roleName) || ctx.scope === 'tenant';
+      if (!allowed) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Only firm admin or branch manager can unlock filled forms.',
+        });
+      }
+      const sub = await ctx.prisma.intakeSubmission.findFirst({
+        where: { id: input.submissionId, tenantId: ctx.tenantId },
+      });
+      if (!sub) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (!sub.lockedAt) return { ok: true, alreadyOpen: true };
+      await ctx.prisma.intakeSubmission.update({
+        where: { id: sub.id },
+        data: {
+          lockedAt: null,
+          unlockedBy: ctx.session.sub,
+          unlockedAt: new Date(),
+        },
+      });
+      // Re-extend the request token so the client can re-open the link.
+      await ctx.prisma.intakeRequest.updateMany({
+        where: { submissionId: sub.id },
+        data: {
+          publicTokenExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'USER',
+          action: 'intake.unlock',
+          targetType: 'IntakeSubmission',
+          targetId: sub.id,
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+      return { ok: true };
     }),
 });
 

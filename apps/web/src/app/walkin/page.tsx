@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Phone, Search, UserPlus } from 'lucide-react';
+import { ArrowRight, FileText, Phone, Search, UserPlus } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -15,9 +15,10 @@ import {
   ThemeProvider,
   type Branding,
 } from '@onsecboad/ui';
-import { rpcQuery } from '../../lib/api';
+import { rpcMutation, rpcQuery } from '../../lib/api';
 import { getAccessToken } from '../../lib/session';
 import { AppShell, type ShellUser } from '../../components/AppShell';
+import { SendIntakeModal } from '../../components/intake/SendIntakeModal';
 
 type FoundClient = {
   id: string;
@@ -70,6 +71,14 @@ export default function WalkinPage() {
   const [result, setResult] = useState<LookupResp | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [intakeContext, setIntakeContext] = useState<{
+    leadId?: string;
+    clientId?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+  } | null>(null);
+  const [creatingLead, setCreatingLead] = useState(false);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -100,6 +109,38 @@ export default function WalkinPage() {
       setError(err instanceof Error ? err.message : 'Lookup failed');
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * For "no prior record" walk-ins: create a lead silently so the intake
+   * request has something to attach to, then open the SendIntakeModal.
+   * The receptionist gives the customer the link/QR/email — the form fills
+   * in name/email/etc, and submission backfills the lead.
+   */
+  async function createLeadAndSendIntake(): Promise<void> {
+    setError(null);
+    setCreatingLead(true);
+    try {
+      const token = getAccessToken();
+      const lead = await rpcMutation<{ id: string }>(
+        'lead.create',
+        {
+          phone,
+          source: 'walkin',
+          firstName: null,
+          lastName: null,
+          email: null,
+          language: null,
+          caseInterest: null,
+        },
+        { token },
+      );
+      setIntakeContext({ leadId: lead.id, phone });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start visit');
+    } finally {
+      setCreatingLead(false);
     }
   }
 
@@ -167,7 +208,7 @@ export default function WalkinPage() {
             <div className="space-y-4">
               {result.client ? (
                 <Card>
-                  <div className="flex items-start justify-between">
+                  <div className="flex items-start justify-between gap-3">
                     <div>
                       <CardTitle>Existing client</CardTitle>
                       <div className="mt-3 text-lg font-semibold">
@@ -184,27 +225,51 @@ export default function WalkinPage() {
                         ) : null}
                       </div>
                     </div>
-                    <Link href={`/leads/new?phone=${encodeURIComponent(result.client.phone)}`}>
-                      <Button variant="primary">
-                        Start new visit <ArrowRight size={14} />
+                    <div className="flex flex-col items-end gap-2">
+                      <Button
+                        onClick={() =>
+                          setIntakeContext({
+                            clientId: result.client!.id,
+                            name:
+                              [result.client!.firstName, result.client!.lastName]
+                                .filter(Boolean)
+                                .join(' ') || undefined,
+                            email: result.client!.email ?? undefined,
+                            phone: result.client!.phone,
+                          })
+                        }
+                      >
+                        <FileText size={14} /> Send intake
                       </Button>
-                    </Link>
+                      <Link href={`/leads/new?phone=${encodeURIComponent(result.client.phone)}`}>
+                        <Button variant="ghost" size="sm">
+                          Start manual visit <ArrowRight size={12} />
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
                 </Card>
               ) : (
                 <Card>
-                  <div className="flex items-start justify-between">
+                  <div className="flex items-start justify-between gap-3">
                     <div>
                       <CardTitle>No prior record</CardTitle>
                       <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-                        This phone number doesn&apos;t match any client. Start a new lead.
+                        Send the visitor an intake form first — they fill it on their own
+                        device while waiting. Once submitted you can book the consultation.
                       </p>
                     </div>
-                    <Link href={`/leads/new?phone=${encodeURIComponent(phone)}`}>
-                      <Button>
-                        <UserPlus size={14} /> New lead
+                    <div className="flex flex-col items-end gap-2">
+                      <Button onClick={createLeadAndSendIntake} disabled={creatingLead}>
+                        {creatingLead ? <Spinner /> : <FileText size={14} />}
+                        {creatingLead ? 'Preparing…' : 'Send intake form'}
                       </Button>
-                    </Link>
+                      <Link href={`/leads/new?phone=${encodeURIComponent(phone)}`}>
+                        <Button variant="ghost" size="sm">
+                          <UserPlus size={12} /> New lead manually
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
                 </Card>
               )}
@@ -257,6 +322,18 @@ export default function WalkinPage() {
             </div>
           ) : null}
         </div>
+
+        <SendIntakeModal
+          open={!!intakeContext}
+          onClose={() => setIntakeContext(null)}
+          leadId={intakeContext?.leadId}
+          clientId={intakeContext?.clientId}
+          defaults={{
+            name: intakeContext?.name,
+            email: intakeContext?.email,
+            phone: intakeContext?.phone,
+          }}
+        />
       </AppShell>
     </ThemeProvider>
   );

@@ -147,6 +147,8 @@ export const appointmentRouter = router({
         branchId: z.string().uuid().nullable().optional(),
         feeCents: z.number().int().min(0).max(10_000_00).optional(),
         notes: z.string().max(2000).optional(),
+        // Bypass intake-completion gate (firm admin / branch manager only).
+        skipIntakeCheck: z.boolean().default(false),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -191,6 +193,46 @@ export const appointmentRouter = router({
       // Default branch = provider's branch.
       const branchId =
         input.branchId === undefined ? provider.branchId : input.branchId;
+
+      // Gate: at least one filled IntakeSubmission must exist for the
+      // lead/client BEFORE the appointment can be booked. Firm admins +
+      // branch managers can override with skipIntakeCheck=true. Walk-in
+      // appointments (kind=walkin) are allowed without intake — that's
+      // typically the receptionist booking on the spot.
+      if (!input.skipIntakeCheck && input.kind !== 'walkin') {
+        const intakeFilter = {
+          tenantId: ctx.tenantId,
+          ...(input.leadId ? { leadId: input.leadId } : {}),
+          ...(input.clientId ? { clientId: input.clientId } : {}),
+        };
+        const filledCount = await ctx.prisma.intakeSubmission.count({
+          where: intakeFilter,
+        });
+        if (filledCount === 0) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              'Send an intake form first — appointments can only be booked after the client fills theirs. Firm admins can override.',
+          });
+        }
+      } else if (input.skipIntakeCheck) {
+        // Permission gate on the override.
+        const role = await ctx.prisma.user.findUnique({
+          where: { id: ctx.session.sub },
+          include: { role: true },
+        });
+        const roleName = role?.role.name ?? '';
+        const allowed =
+          /firm.?admin/i.test(roleName) ||
+          /branch.?manager/i.test(roleName) ||
+          ctx.scope === 'tenant';
+        if (!allowed) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Only firm admin or branch manager can skip the intake gate.',
+          });
+        }
+      }
 
       const appt = await ctx.prisma.appointment.create({
         data: {

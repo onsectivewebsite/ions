@@ -7,6 +7,7 @@ import {
   Ban,
   Calendar,
   ClipboardList,
+  FileText,
   Mail,
   MessageSquare,
   Phone,
@@ -31,6 +32,7 @@ import { rpcMutation, rpcQuery } from '../../../lib/api';
 import { getAccessToken } from '../../../lib/session';
 import { AppShell, type ShellUser } from '../../../components/AppShell';
 import { IntakeForm, type IntakeField } from '../../../components/intake/IntakeForm';
+import { SendIntakeModal } from '../../../components/intake/SendIntakeModal';
 
 type LeadStatus = 'NEW' | 'CONTACTED' | 'FOLLOWUP' | 'INTERESTED' | 'BOOKED' | 'CONVERTED' | 'LOST' | 'DNC';
 
@@ -162,6 +164,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   const [smsOpen, setSmsOpen] = useState(false);
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
+  const [sendIntakeOpen, setSendIntakeOpen] = useState(false);
 
   async function refresh(): Promise<void> {
     const token = getAccessToken();
@@ -333,10 +336,18 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setIntakeOpen(true)}
-                title="Fill an intake form for this lead"
+                onClick={() => setSendIntakeOpen(true)}
+                title="Email the client an intake form to fill themselves"
               >
-                <ClipboardList size={14} /> Start intake
+                <FileText size={14} /> Send intake
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIntakeOpen(true)}
+                title="Fill an intake form yourself, on behalf of this lead"
+              >
+                <ClipboardList size={14} /> Fill in person
               </Button>
               <Button
                 variant="secondary"
@@ -456,6 +467,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   ))}
                 </ul>
               </Card>
+
+              <IntakeRequestsCard leadId={id} onError={setError} />
             </div>
 
             <div className="space-y-6">
@@ -600,6 +613,21 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             onError={(msg) => setError(msg)}
           />
         ) : null}
+
+        <SendIntakeModal
+          open={sendIntakeOpen}
+          onClose={() => setSendIntakeOpen(false)}
+          onSent={() => {
+            setInfo('Intake form sent.');
+          }}
+          leadId={id}
+          defaults={{
+            name: [lead.firstName, lead.lastName].filter(Boolean).join(' '),
+            email: lead.email ?? '',
+            phone: lead.phone ?? '',
+            caseType: lead.caseInterest ?? undefined,
+          }}
+        />
       </AppShell>
     </ThemeProvider>
   );
@@ -1155,6 +1183,9 @@ function BookConsultDialog({
   const [fee, setFee] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
+  const [intakeFilled, setIntakeFilled] = useState<boolean | null>(null);
+  const [skipIntake, setSkipIntake] = useState(false);
+  const [canOverride, setCanOverride] = useState(false);
 
   useEffect(() => {
     const t = getAccessToken();
@@ -1166,6 +1197,21 @@ function BookConsultDialog({
         setProviders(eligible);
       })
       .catch((e) => onError(e instanceof Error ? e.message : 'Failed to load providers'));
+    // Pre-flight: any intake submitted for this lead?
+    rpcQuery<Array<{ submission: { id: string } | null }>>(
+      'intake.listRequestsForLead',
+      { leadId },
+      { token: t },
+    )
+      .then((reqs) => setIntakeFilled(reqs.some((r) => r.submission)))
+      .catch(() => setIntakeFilled(null));
+    // Override capability: probe by role.
+    rpcQuery<{ role?: { name: string } }>('user.me', undefined, { token: t })
+      .then((m) => {
+        const n = m.role?.name ?? '';
+        setCanOverride(/firm.?admin/i.test(n) || /branch.?manager/i.test(n));
+      })
+      .catch(() => setCanOverride(false));
     // Default the date picker to today.
     const now = new Date();
     setDate(now.toISOString().slice(0, 10));
@@ -1197,6 +1243,7 @@ function BookConsultDialog({
           caseType: caseType || undefined,
           feeCents: fee ? Math.round(Number(fee) * 100) : undefined,
           notes: notes || undefined,
+          skipIntakeCheck: skipIntake,
         },
         { token: t },
       );
@@ -1221,6 +1268,25 @@ function BookConsultDialog({
           </button>
         </div>
         <div className="space-y-4">
+          {intakeFilled === false && kind !== 'walkin' ? (
+            <div className="rounded-[var(--radius-md)] border border-[var(--color-warning)]/40 bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-3 text-xs">
+              <div className="font-medium">Intake form not filled yet</div>
+              <p className="mt-1 text-[var(--color-text-muted)]">
+                Send an intake form to the client first. Once they submit, you can book the
+                consultation. {canOverride ? 'Or check the override below.' : ''}
+              </p>
+              {canOverride ? (
+                <label className="mt-2 inline-flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={skipIntake}
+                    onChange={(e) => setSkipIntake(e.target.checked)}
+                  />
+                  Override (admin only — book without intake)
+                </label>
+              ) : null}
+            </div>
+          ) : null}
           <div>
             <Label>Provider</Label>
             {providers === null ? (
@@ -1320,5 +1386,139 @@ function BookConsultDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+type IntakeRequestRow = {
+  id: string;
+  sentVia: string;
+  recipientEmail: string | null;
+  createdAt: string;
+  openedAt: string | null;
+  filledAt: string | null;
+  cancelledAt: string | null;
+  publicTokenExpiresAt: string;
+  template: { id: string; name: string; caseType: string };
+  submission: { id: string; submittedAt: string; lockedAt: string | null } | null;
+};
+
+function IntakeRequestsCard({
+  leadId,
+  onError,
+}: {
+  leadId: string;
+  onError: (msg: string) => void;
+}) {
+  const [rows, setRows] = useState<IntakeRequestRow[] | null>(null);
+  const [refresh, setRefresh] = useState(0);
+
+  useEffect(() => {
+    const t = getAccessToken();
+    rpcQuery<IntakeRequestRow[]>('intake.listRequestsForLead', { leadId }, { token: t })
+      .then(setRows)
+      .catch((e) => onError(e instanceof Error ? e.message : 'Failed to load intake requests'));
+  }, [leadId, onError, refresh]);
+
+  async function unlock(submissionId: string): Promise<void> {
+    if (!confirm('Unlock this filled intake form so the client can edit again?')) return;
+    try {
+      const t = getAccessToken();
+      await rpcMutation('intake.unlock', { submissionId }, { token: t });
+      setRefresh((x) => x + 1);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Unlock failed');
+    }
+  }
+
+  async function cancel(id: string): Promise<void> {
+    if (!confirm('Cancel this intake request? The link will stop working.')) return;
+    try {
+      const t = getAccessToken();
+      await rpcMutation('intake.cancelRequest', { id }, { token: t });
+      setRefresh((x) => x + 1);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Cancel failed');
+    }
+  }
+
+  if (rows === null) {
+    return (
+      <Card>
+        <CardTitle>Intake forms</CardTitle>
+        <Skeleton className="mt-4 h-12" />
+      </Card>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <CardTitle>Intake forms</CardTitle>
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+          No forms sent yet. Use <span className="font-medium">Send intake</span> in the
+          action bar to email a form to this client.
+        </p>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardTitle>Intake forms ({rows.length})</CardTitle>
+      <ul className="mt-3 space-y-3">
+        {rows.map((r) => {
+          const status = r.cancelledAt
+            ? 'Cancelled'
+            : r.filledAt
+              ? r.submission?.lockedAt
+                ? 'Submitted (locked)'
+                : 'Submitted'
+              : r.openedAt
+                ? 'Opened'
+                : 'Sent';
+          const tone =
+            status.startsWith('Submitted')
+              ? 'success'
+              : status === 'Opened'
+                ? 'info'
+                : status === 'Cancelled'
+                  ? 'neutral'
+                  : 'warning';
+          return (
+            <li
+              key={r.id}
+              className="rounded-[var(--radius-md)] border border-[var(--color-border-muted)] p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{r.template.name}</div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-[var(--color-text-muted)]">
+                    <Badge tone={tone as 'success' | 'info' | 'neutral' | 'warning'}>
+                      {status}
+                    </Badge>
+                    <span>via {r.sentVia}</span>
+                    {r.recipientEmail ? <span>· {r.recipientEmail}</span> : null}
+                  </div>
+                  <div className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                    Sent {new Date(r.createdAt).toLocaleString()}
+                    {r.filledAt ? ` · Filled ${new Date(r.filledAt).toLocaleString()}` : ''}
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  {r.submission?.lockedAt ? (
+                    <Button size="sm" variant="ghost" onClick={() => unlock(r.submission!.id)}>
+                      Unlock
+                    </Button>
+                  ) : null}
+                  {!r.filledAt && !r.cancelledAt ? (
+                    <Button size="sm" variant="ghost" onClick={() => cancel(r.id)}>
+                      Cancel
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }

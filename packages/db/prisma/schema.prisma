@@ -394,6 +394,7 @@ model Lead {
   leadCampaigns      LeadCampaign[]
   appointments       Appointment[]
   cases              Case[]
+  intakeRequests     IntakeRequest[]
 
   @@index([tenantId, status, createdAt])
   @@index([tenantId, branchId, assignedToId])
@@ -583,6 +584,7 @@ model Client {
   deletionReason  String?
 
   intakeSubmissions IntakeSubmission[]
+  intakeRequests    IntakeRequest[]
   appointments      Appointment[]
   cases             Case[]
   portalAccount     ClientPortalAccount?
@@ -614,6 +616,7 @@ model IntakeFormTemplate {
   updatedAt   DateTime   @updatedAt
 
   submissions IntakeSubmission[]
+  requests    IntakeRequest[]
 
   @@index([tenantId, caseType, isActive])
 }
@@ -624,6 +627,10 @@ model IntakeFormTemplate {
 // We carry leadId AND clientId on purpose: a submission against a brand-new walk-in
 // starts with leadId only; once we promote them to a Client (after intake completes)
 // we backfill clientId so client history queries see it.
+//
+// `lockedAt` set when the client finishes filling. Only firm admin or branch
+// manager can `intake.unlock` to allow further edits. Public link redirects
+// to a "submitted" page when locked.
 model IntakeSubmission {
   id                   String     @id @default(uuid()) @db.Uuid
   tenantId             String     @db.Uuid
@@ -641,9 +648,52 @@ model IntakeSubmission {
   publicTokenHash      String?    @unique
   publicTokenExpiresAt DateTime?
   publicSubmittedAt    DateTime?
+  lockedAt             DateTime?
+  unlockedBy           String?    @db.Uuid
+  unlockedAt           DateTime?
+
+  request              IntakeRequest?
 
   @@index([tenantId, leadId])
   @@index([tenantId, clientId, submittedAt])
+}
+
+// IntakeRequest — a staff-issued invitation for a client to fill an intake
+// form. Holds the public token, recipient delivery info, and the link back
+// to the submission once filled. Distinct from IntakeSubmission because we
+// want the "form sent but not yet filled" state to be queryable.
+model IntakeRequest {
+  id                   String     @id @default(uuid()) @db.Uuid
+  tenantId             String     @db.Uuid
+  tenant               Tenant     @relation(fields: [tenantId], references: [id])
+  templateId           String     @db.Uuid
+  template             IntakeFormTemplate @relation(fields: [templateId], references: [id])
+  leadId               String?    @db.Uuid
+  lead                 Lead?      @relation(fields: [leadId], references: [id])
+  clientId             String?    @db.Uuid
+  client               Client?    @relation(fields: [clientId], references: [id])
+
+  recipientName        String?
+  recipientEmail       String?
+  recipientPhone       String?
+  // 'email' | 'sms' | 'qr' | 'staff' (last = receptionist hands the tablet over)
+  sentVia              String
+
+  publicTokenHash      String     @unique
+  publicTokenExpiresAt DateTime
+  openedAt             DateTime?
+  filledAt             DateTime?
+  cancelledAt          DateTime?
+
+  submissionId         String?    @unique @db.Uuid
+  submission           IntakeSubmission? @relation(fields: [submissionId], references: [id])
+
+  createdBy            String     @db.Uuid
+  createdAt            DateTime   @default(now())
+
+  @@index([tenantId, leadId])
+  @@index([tenantId, clientId])
+  @@index([tenantId, filledAt])
 }
 
 // Appointment — consultation, follow-up, document review, walk-in.

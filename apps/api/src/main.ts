@@ -34,6 +34,10 @@ import {
 } from './routes/document-upload.js';
 import { pdfTemplateUploadHandler } from './routes/pdf-template-upload.js';
 import { uploadLogoHandler, logoProxyHandler } from './routes/tenant-logo.js';
+import {
+  publicIntakeGetHandler,
+  publicIntakeSubmitHandler,
+} from './routes/public-intake.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
 const env = loadEnv();
@@ -98,6 +102,14 @@ app.post('/api/v1/pdf-templates', fileBody, pdfTemplateUploadHandler);
 const logoBody = express.raw({ type: 'image/*', limit: '2mb' });
 app.post('/api/v1/tenant/logo', logoBody, uploadLogoHandler);
 app.get('/api/v1/tenant/:tenantId/logo', logoProxyHandler);
+
+// Public intake form (no auth — token in URL).
+app.get('/api/v1/intake/:token', publicIntakeGetHandler);
+app.post(
+  '/api/v1/intake/:token/submit',
+  express.json({ limit: '256kb' }),
+  publicIntakeSubmitHandler,
+);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
