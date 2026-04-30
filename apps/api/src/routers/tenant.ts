@@ -28,6 +28,9 @@ const firmDetailsSchema = z.object({
   locale: z.string().max(10).optional(),
   timezone: z.string().max(60).optional(),
   address: addressSchema.nullable().optional(),
+  // Min 90 days satisfies PIPEDA s.10.3 (24-month minimum for breach
+  // records). 1825 = 5 years upper bound to keep storage in check.
+  auditRetentionDays: z.number().int().min(90).max(1825).optional(),
 });
 
 export const tenantRouter = router({
@@ -85,6 +88,7 @@ export const tenantRouter = router({
         address: true,
         packageTier: true,
         seatCount: true,
+        auditRetentionDays: true,
       },
     });
     return t;
@@ -102,6 +106,9 @@ export const tenantRouter = router({
       if (input.emailFrom !== undefined) data.emailFrom = input.emailFrom;
       if (input.locale !== undefined) data.locale = input.locale;
       if (input.timezone !== undefined) data.timezone = input.timezone;
+      if (input.auditRetentionDays !== undefined) {
+        data.auditRetentionDays = input.auditRetentionDays;
+      }
       if (input.address !== undefined) {
         data.address = (input.address as Prisma.InputJsonValue) ?? Prisma.JsonNull;
       }

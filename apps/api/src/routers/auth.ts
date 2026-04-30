@@ -24,6 +24,22 @@ import { logger } from '../logger.js';
 
 const env = loadEnv();
 
+/**
+ * Generate 10 recovery codes in the format `xxxx-xxxx` (4-4, lowercase
+ * alphanumeric, dash separator). 8 chars × ~32 entropy ≈ 40 bits per
+ * code — good for a printed backup that's only useful with the
+ * password also.
+ */
+function generateRecoveryCodes(): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < 10; i++) {
+    const left = randomBytes(3).toString('base64url').slice(0, 4).toLowerCase();
+    const right = randomBytes(3).toString('base64url').slice(0, 4).toLowerCase();
+    out.push(`${left}-${right}`);
+  }
+  return out;
+}
+
 /* ─── Auth ticket model ────────────────────────────────────────────────────
  * After step-1 password check, we hand the client a short-lived "ticket"
  * stored in Redis describing who passed step 1. Step 2 (TOTP / email OTP)
@@ -419,7 +435,7 @@ export const authRouter = router({
       z.object({
         ticket: z.string().min(1),
         code: z.string().min(4),
-        method: z.enum(['totp', 'email_otp']),
+        method: z.enum(['totp', 'email_otp', 'recovery_code']),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -434,6 +450,25 @@ export const authRouter = router({
             : (await ctx.prisma.user.findUnique({ where: { id: t.userId } }))?.twoFASecret;
         if (!secret) throw new TRPCError({ code: 'BAD_REQUEST', message: 'TOTP not enrolled' });
         ok = verifyTotp(secret, input.code);
+      } else if (input.method === 'recovery_code') {
+        // Recovery codes only exist for firm users.
+        if (t.kind !== 'firm') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Recovery codes not supported here' });
+        }
+        const candidate = input.code.trim().toLowerCase();
+        const codes = await ctx.prisma.twoFactorRecoveryCode.findMany({
+          where: { userId: t.userId, usedAt: null },
+        });
+        for (const c of codes) {
+          if (await verifyPassword(c.codeHash, candidate)) {
+            await ctx.prisma.twoFactorRecoveryCode.update({
+              where: { id: c.id },
+              data: { usedAt: new Date() },
+            });
+            ok = true;
+            break;
+          }
+        }
       } else {
         const hash = await redis.get(`auth:otp:${input.ticket}`);
         if (!hash) throw new TRPCError({ code: 'BAD_REQUEST', message: 'OTP not requested or expired' });
@@ -533,13 +568,81 @@ export const authRouter = router({
       if (!verifyTotp(input.secret, input.code)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Code did not match' });
       }
-      if (ctx.session.scope === 'platform') {
+      const isPlatform = ctx.session.scope === 'platform';
+      if (isPlatform) {
         await ctx.prisma.platformUser.update({ where: { id: ctx.session.sub }, data: { twoFASecret: input.secret } });
-      } else {
-        await ctx.prisma.user.update({ where: { id: ctx.session.sub }, data: { twoFASecret: input.secret } });
+        return { ok: true, recoveryCodes: [] };
       }
-      return { ok: true };
+      await ctx.prisma.user.update({
+        where: { id: ctx.session.sub },
+        data: { twoFASecret: input.secret },
+      });
+      // Generate 10 single-use recovery codes. Stored hashed; the user sees
+      // each plaintext exactly once.
+      const codes = generateRecoveryCodes();
+      await ctx.prisma.twoFactorRecoveryCode.deleteMany({
+        where: { userId: ctx.session.sub },
+      });
+      await ctx.prisma.twoFactorRecoveryCode.createMany({
+        data: await Promise.all(
+          codes.map(async (c) => ({
+            userId: ctx.session.sub,
+            codeHash: await hashPassword(c),
+          })),
+        ),
+      });
+      return { ok: true, recoveryCodes: codes };
     }),
+
+  /**
+   * Regenerate the recovery code set. Wipes old codes (used or unused) and
+   * returns 10 fresh ones. Print them, then no one — including support — can
+   * read them again.
+   */
+  recoveryCodesRegenerate: protectedProcedure.mutation(async ({ ctx }) => {
+    if (ctx.session.scope !== 'firm') {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Firm-only' });
+    }
+    const codes = generateRecoveryCodes();
+    await ctx.prisma.twoFactorRecoveryCode.deleteMany({
+      where: { userId: ctx.session.sub },
+    });
+    await ctx.prisma.twoFactorRecoveryCode.createMany({
+      data: await Promise.all(
+        codes.map(async (c) => ({
+          userId: ctx.session.sub,
+          codeHash: await hashPassword(c),
+        })),
+      ),
+    });
+    await ctx.prisma.auditLog.create({
+      data: {
+        tenantId: ctx.session.tenantId ?? null,
+        actorId: ctx.session.sub,
+        actorType: 'USER',
+        action: 'auth.recoveryCodes.regenerate',
+        targetType: 'User',
+        targetId: ctx.session.sub,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent ?? null,
+      },
+    });
+    return { codes };
+  }),
+
+  /** Counts how many recovery codes remain unused. */
+  recoveryCodesStatus: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.session.scope !== 'firm') return { remaining: 0, total: 0 };
+    const [remaining, total] = await Promise.all([
+      ctx.prisma.twoFactorRecoveryCode.count({
+        where: { userId: ctx.session.sub, usedAt: null },
+      }),
+      ctx.prisma.twoFactorRecoveryCode.count({
+        where: { userId: ctx.session.sub },
+      }),
+    ]);
+    return { remaining, total };
+  }),
 
   // ─── Passkeys ────────────────────────────────────────────────────────────
   // Discoverable-credential flow on sign-in: client sends no credential id;

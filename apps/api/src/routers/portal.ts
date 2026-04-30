@@ -948,4 +948,136 @@ export const clientPortalAdminRouter = router({
       });
       return { ok: true };
     }),
+
+  // ─── PIPEDA self-serve (client-scoped) ──────────────────────────────
+  // The firm-side data-rights router lets staff act on a client. These
+  // procedures let the client trigger the same flows themselves.
+  privacyExportSelf: clientProcedure.mutation(async ({ ctx }) => {
+    const client = await ctx.prisma.client.findFirst({
+      where: { id: ctx.clientId, tenantId: ctx.tenantId },
+    });
+    if (!client) throw new TRPCError({ code: 'NOT_FOUND' });
+    const { uploadBuffer, signedUrl } = await import('@onsecboad/r2');
+    const [
+      leads,
+      cases,
+      appointments,
+      intake,
+      messages,
+      uploads,
+      invoices,
+      payments,
+      irccLog,
+    ] = await Promise.all([
+      ctx.prisma.lead.findMany({ where: { tenantId: ctx.tenantId, phone: client.phone } }),
+      ctx.prisma.case.findMany({ where: { tenantId: ctx.tenantId, clientId: client.id } }),
+      ctx.prisma.appointment.findMany({ where: { tenantId: ctx.tenantId, clientId: client.id } }),
+      ctx.prisma.intakeSubmission.findMany({ where: { tenantId: ctx.tenantId, clientId: client.id } }),
+      ctx.prisma.message.findMany({ where: { tenantId: ctx.tenantId, clientId: client.id } }),
+      ctx.prisma.documentUpload.findMany({
+        where: { tenantId: ctx.tenantId, case: { clientId: client.id } } as never,
+      }),
+      ctx.prisma.caseInvoice.findMany({
+        where: { tenantId: ctx.tenantId, case: { clientId: client.id } },
+        include: { items: true, payments: true },
+      }),
+      ctx.prisma.casePayment.findMany({
+        where: { tenantId: ctx.tenantId, case: { clientId: client.id } },
+      }),
+      ctx.prisma.irccCorrespondence.findMany({
+        where: { tenantId: ctx.tenantId, case: { clientId: client.id } } as never,
+      }),
+    ]);
+    const bundle = {
+      exportedAt: new Date().toISOString(),
+      tenantId: ctx.tenantId,
+      client,
+      leads,
+      cases,
+      appointments,
+      intakeSubmissions: intake,
+      messages,
+      uploads,
+      invoices,
+      payments,
+      irccLog,
+    };
+    const json = JSON.stringify(bundle, null, 2);
+    const buf = Buffer.from(json, 'utf8');
+    const key = `tenants/${ctx.tenantId}/data-rights/exports/self/${client.id}-${Date.now()}.json`;
+    await uploadBuffer(key, buf, 'application/json');
+    const url = await signedUrl(key);
+    await ctx.prisma.auditLog.create({
+      data: {
+        tenantId: ctx.tenantId,
+        actorId: ctx.accountId,
+        actorType: 'CLIENT',
+        action: 'dataRights.export.self',
+        targetType: 'Client',
+        targetId: client.id,
+        payload: { sizeBytes: buf.length },
+        ip: ctx.ip,
+        userAgent: ctx.userAgent ?? null,
+      },
+    });
+    return { url, sizeBytes: buf.length };
+  }),
+
+  /**
+   * Client-initiated deletion request. Soft-deletes + schedules hard
+   * purge in 30 days; firm staff can cancel during the grace window.
+   * Same data flow as firm-side requestDeletion.
+   */
+  privacyRequestDeletionSelf: clientProcedure
+    .input(
+      z.object({
+        reason: z.string().min(2).max(500),
+        confirm: z.literal('DELETE'),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const client = await ctx.prisma.client.findFirst({
+        where: { id: ctx.clientId, tenantId: ctx.tenantId },
+      });
+      if (!client) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (client.legalHoldUntil && client.legalHoldUntil > new Date()) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'Your account is on legal hold by your firm and cannot be deleted right now. Contact your firm directly.',
+        });
+      }
+      const purgeAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await ctx.prisma.$transaction(async (tx) => {
+        await tx.client.update({
+          where: { id: client.id },
+          data: {
+            purgeAt,
+            deletionReason: `[client-initiated] ${input.reason}`,
+            deletedAt: new Date(),
+          },
+        });
+        await tx.clientPortalAccount.updateMany({
+          where: { clientId: client.id },
+          data: { status: 'DISABLED' },
+        });
+        await tx.clientPortalSession.deleteMany({
+          where: { account: { clientId: client.id } },
+        });
+        await tx.auditLog.create({
+          data: {
+            tenantId: ctx.tenantId,
+            actorId: ctx.accountId,
+            actorType: 'CLIENT',
+            action: 'dataRights.requestDeletion.self',
+            targetType: 'Client',
+            targetId: client.id,
+            payload: { reason: input.reason, purgeAt },
+            ip: ctx.ip,
+            userAgent: ctx.userAgent ?? null,
+          },
+        });
+      });
+      return { ok: true, purgeAt };
+    }),
 });

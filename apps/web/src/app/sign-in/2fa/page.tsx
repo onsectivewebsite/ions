@@ -1,13 +1,13 @@
 'use client';
 import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Smartphone, Mail } from 'lucide-react';
-import { Button, Card, Spinner } from '@onsecboad/ui';
+import { ArrowLeft, KeyRound, Smartphone, Mail } from 'lucide-react';
+import { Button, Card, Input, Spinner } from '@onsecboad/ui';
 import { rpcMutation } from '../../../lib/api';
 import { setAccessToken } from '../../../lib/session';
 import { Logo } from '../../../components/Logo';
 
-type Method = 'totp' | 'email_otp';
+type Method = 'totp' | 'email_otp' | 'recovery_code';
 type VerifyResult = { accessToken: string; refreshToken: string; accessExpiresAt: string };
 type OtpResult = { ok: true; emailSent: boolean; emailError?: string };
 
@@ -26,6 +26,7 @@ function TwoFAInner() {
   );
   const [method, setMethod] = useState<Method>(methods[0] ?? 'email_otp');
   const [code, setCode] = useState<string[]>(Array(6).fill(''));
+  const [recoveryCode, setRecoveryCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(() => requestedTickets.has(ticket));
   const [otpDeliveryFailed, setOtpDeliveryFailed] = useState(false);
@@ -97,9 +98,10 @@ function TwoFAInner() {
     setError(null);
     setLoading(true);
     try {
+      const submittedCode = method === 'recovery_code' ? recoveryCode.trim() : code.join('');
       const res = await rpcMutation<VerifyResult>('auth.verify2FA', {
         ticket,
-        code: code.join(''),
+        code: submittedCode,
         method,
       });
       setAccessToken(res.accessToken);
@@ -147,7 +149,7 @@ function TwoFAInner() {
             We need a second factor to keep client data safe.
           </p>
 
-          <div className="mt-5 grid grid-cols-2 gap-2">
+          <div className="mt-5 grid grid-cols-3 gap-2">
             {methods.includes('totp') ? (
               <MethodTab
                 active={method === 'totp'}
@@ -156,7 +158,7 @@ function TwoFAInner() {
                   setCode(Array(6).fill(''));
                 }}
                 icon={<Smartphone size={14} />}
-                label="Authenticator app"
+                label="App"
               />
             ) : null}
             {methods.includes('email_otp') ? (
@@ -167,7 +169,18 @@ function TwoFAInner() {
                   setCode(Array(6).fill(''));
                 }}
                 icon={<Mail size={14} />}
-                label="Email code"
+                label="Email"
+              />
+            ) : null}
+            {methods.includes('totp') ? (
+              <MethodTab
+                active={method === 'recovery_code'}
+                onClick={() => {
+                  setMethod('recovery_code');
+                  setRecoveryCode('');
+                }}
+                icon={<KeyRound size={14} />}
+                label="Recovery"
               />
             ) : null}
           </div>
@@ -204,26 +217,42 @@ function TwoFAInner() {
               Open your authenticator app and enter the 6-digit code shown for OnsecBoad.
             </p>
           ) : null}
+          {method === 'recovery_code' ? (
+            <p className="mt-4 text-xs text-[var(--color-text-muted)]">
+              Enter one of your saved recovery codes (format <span className="font-mono">xxxx-xxxx</span>).
+              Each code is single-use.
+            </p>
+          ) : null}
 
           <form onSubmit={onSubmit} className="mt-5 space-y-4">
-            <div className="flex justify-between gap-2" onPaste={handlePaste}>
-              {code.map((d, i) => (
-                <input
-                  key={i}
-                  ref={(el) => {
-                    inputs.current[i] = el;
-                  }}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={1}
-                  value={d}
-                  onChange={(e) => handleDigit(i, e.target.value)}
-                  onKeyDown={(e) => handleKey(i, e)}
-                  className="h-14 w-12 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-2xl font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus)]"
-                  aria-label={`Digit ${i + 1}`}
-                />
-              ))}
-            </div>
+            {method === 'recovery_code' ? (
+              <Input
+                value={recoveryCode}
+                onChange={(e) => setRecoveryCode(e.target.value)}
+                placeholder="xxxx-xxxx"
+                autoFocus
+                className="text-center font-mono text-lg tracking-widest"
+              />
+            ) : (
+              <div className="flex justify-between gap-2" onPaste={handlePaste}>
+                {code.map((d, i) => (
+                  <input
+                    key={i}
+                    ref={(el) => {
+                      inputs.current[i] = el;
+                    }}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={1}
+                    value={d}
+                    onChange={(e) => handleDigit(i, e.target.value)}
+                    onKeyDown={(e) => handleKey(i, e)}
+                    className="h-14 w-12 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-2xl font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus)]"
+                    aria-label={`Digit ${i + 1}`}
+                  />
+                ))}
+              </div>
+            )}
 
             {error ? (
               <div className="rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] p-3 text-sm text-[var(--color-danger)]">
@@ -233,7 +262,12 @@ function TwoFAInner() {
 
             <Button
               type="submit"
-              disabled={loading || code.join('').length !== 6}
+              disabled={
+                loading ||
+                (method === 'recovery_code'
+                  ? recoveryCode.trim().length < 8
+                  : code.join('').length !== 6)
+              }
               className="w-full"
             >
               {loading ? <Spinner /> : null}
@@ -242,7 +276,7 @@ function TwoFAInner() {
           </form>
 
           <p className="mt-4 text-center text-xs text-[var(--color-text-muted)]">
-            Lost your device? Contact your firm admin.
+            Lost your device <em>and</em> your codes? Contact your firm admin.
           </p>
         </Card>
       </div>

@@ -38,6 +38,7 @@ type FirmDetails = {
   } | null;
   packageTier: string;
   seatCount: number;
+  auditRetentionDays: number;
 };
 
 type Me = {
@@ -288,6 +289,34 @@ export default function FirmSettingsPage() {
                   onChange={(e) => setAddr({ ...addr, country: e.target.value || null })}
                   placeholder="Canada"
                 />
+              </label>
+            </div>
+          </Card>
+
+          <Card>
+            <CardTitle>Audit log retention</CardTitle>
+            <CardBody className="mt-1 text-xs text-[var(--color-text-muted)]">
+              How long Onsective keeps audit-log entries before purging. Minimum 90 days,
+              maximum 5 years. PIPEDA s.10.3 requires breach records for 24 months.
+            </CardBody>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <label className="text-xs">
+                <Label className="mb-1 block">Retention (days)</Label>
+                <Input
+                  type="number"
+                  min={90}
+                  max={1825}
+                  value={(v('auditRetentionDays') as number) ?? 730}
+                  onChange={(e) =>
+                    setEdits({
+                      ...edits,
+                      auditRetentionDays: Number(e.target.value) || 730,
+                    })
+                  }
+                />
+                <div className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                  Default 730 (2 years).
+                </div>
               </label>
             </div>
           </Card>

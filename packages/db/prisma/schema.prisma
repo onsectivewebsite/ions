@@ -65,6 +65,8 @@ model Tenant {
   address              Json?        // { line1, line2, city, province, postalCode, country }
   taxId                String?      // GST/HST/EIN — value only
   taxIdType            String?      // 'ca_gst_hst' | 'us_ein' | etc — Stripe type code
+  // PIPEDA-relevant. Default 730 (2 years) matches s.10.3 record-keeping.
+  auditRetentionDays   Int          @default(730)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   deletedAt       DateTime?
@@ -165,6 +167,7 @@ model User {
   phone           String?
   passwordHash    String?
   twoFASecret     String?
+  recoveryCodes   TwoFactorRecoveryCode[]
   notificationPrefs Json?
   branchId        String?    @db.Uuid
   branch          Branch?    @relation("BranchUsers", fields: [branchId], references: [id])
@@ -229,6 +232,20 @@ model Passkey {
   transports      String[]
   createdAt       DateTime      @default(now())
   lastUsedAt      DateTime?
+}
+
+// 2FA recovery codes — single-use printable codes for "lost authenticator
+// device" recovery. Generated on TOTP enrollment, hashed at rest, marked
+// used the first time they're consumed.
+model TwoFactorRecoveryCode {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, usedAt])
 }
 
 model Session {
