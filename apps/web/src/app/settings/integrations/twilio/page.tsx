@@ -181,6 +181,62 @@ export default function TwilioSettingsPage() {
             </div>
           ) : null}
 
+          {!config.configured ? (
+            <Card>
+              <CardTitle>How to get your Twilio credentials</CardTitle>
+              <ol className="mt-3 space-y-3 text-sm">
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-[10px] font-bold text-white">
+                    1
+                  </span>
+                  <div>
+                    Sign up at{' '}
+                    <a
+                      href="https://www.twilio.com/try-twilio"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[var(--color-primary)] underline"
+                    >
+                      twilio.com
+                    </a>
+                    . The free trial includes a phone number — fine to start with.
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-[10px] font-bold text-white">
+                    2
+                  </span>
+                  <div>
+                    From the Twilio Console homepage, copy the <strong>Account SID</strong> and{' '}
+                    <strong>Auth Token</strong> (right under your project name).
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-[10px] font-bold text-white">
+                    3
+                  </span>
+                  <div>
+                    Phone Numbers → Manage → Active numbers. Copy your number in E.164 format
+                    (e.g. <span className="font-mono">+14165551234</span>).
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-[10px] font-bold text-white">
+                    4
+                  </span>
+                  <div>
+                    Paste them below. Auth Token is encrypted at rest — only the dial-out path
+                    sees it.
+                  </div>
+                </li>
+              </ol>
+              <p className="mt-4 rounded-[var(--radius-md)] border border-[var(--color-border-muted)] bg-[var(--color-surface-muted)] p-3 text-xs text-[var(--color-text-muted)]">
+                <strong>TwiML App SID</strong> is only needed if you&rsquo;ll use the in-browser
+                softphone. SMS-only firms can skip it.
+              </p>
+            </Card>
+          ) : null}
+
           <Card>
             <div className="flex items-center justify-between">
               <CardTitle>Status</CardTitle>

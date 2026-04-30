@@ -1,4 +1,5 @@
 import { Prisma } from '@onsecboad/db';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { router, firmProcedure } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
@@ -128,4 +129,198 @@ export const tenantRouter = router({
       });
       return { ok: true };
     }),
+
+  /**
+   * Seed sample leads, clients, cases, appointments tagged with [demo] in
+   * notes so they can be wiped later. Useful so a fresh tenant doesn't
+   * stare at zeroed dashboards during a sales demo. Idempotent: re-running
+   * does nothing if the tag is already present.
+   */
+  loadDemoData: requirePermission('settings', 'write').mutation(async ({ ctx }) => {
+    // Idempotency check.
+    const already = await ctx.prisma.lead.findFirst({
+      where: { tenantId: ctx.tenantId, notes: { contains: '[demo]' } },
+      select: { id: true },
+    });
+    if (already) {
+      return { ok: true, alreadyLoaded: true };
+    }
+
+    // Pick a branch + a lawyer to attribute things to.
+    const [branch, lawyer] = await Promise.all([
+      ctx.prisma.branch.findFirst({
+        where: { tenantId: ctx.tenantId, isActive: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      ctx.prisma.user.findFirst({
+        where: { tenantId: ctx.tenantId, deletedAt: null, status: 'ACTIVE' },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+    if (!branch || !lawyer) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Need at least one branch + one active user before loading demo data.',
+      });
+    }
+
+    const now = Date.now();
+    const sample = [
+      {
+        firstName: 'Aanya',
+        lastName: 'Sharma',
+        phone: '+14165551001',
+        email: 'aanya@example.com',
+        source: 'walkin',
+        status: 'INTERESTED' as const,
+        caseInterest: 'work_permit',
+      },
+      {
+        firstName: 'Marcus',
+        lastName: 'Bell',
+        phone: '+16475552002',
+        email: 'marcus@example.com',
+        source: 'meta',
+        status: 'CONTACTED' as const,
+        caseInterest: 'study_permit',
+      },
+      {
+        firstName: 'Priya',
+        lastName: 'Iyer',
+        phone: '+12365553003',
+        email: 'priya@example.com',
+        source: 'referral',
+        status: 'NEW' as const,
+        caseInterest: 'pr_economic',
+      },
+    ];
+
+    const leads: { id: string; phone: string }[] = [];
+    for (const s of sample) {
+      const l = await ctx.prisma.lead.create({
+        data: {
+          tenantId: ctx.tenantId,
+          branchId: branch.id,
+          firstName: s.firstName,
+          lastName: s.lastName,
+          phone: s.phone,
+          email: s.email,
+          source: s.source,
+          status: s.status,
+          caseInterest: s.caseInterest,
+          assignedToId: lawyer.id,
+          notes: '[demo] sample lead — safe to delete.',
+        },
+      });
+      leads.push({ id: l.id, phone: s.phone });
+    }
+
+    // Promote the first two to clients + open cases.
+    for (let i = 0; i < 2; i++) {
+      const s = sample[i];
+      const lead = leads[i];
+      if (!s || !lead) continue;
+      const client = await ctx.prisma.client.create({
+        data: {
+          tenantId: ctx.tenantId,
+          branchId: branch.id,
+          firstName: s.firstName,
+          lastName: s.lastName,
+          phone: s.phone,
+          email: s.email,
+          primaryLeadId: lead.id,
+          notes: '[demo]',
+        },
+      });
+      await ctx.prisma.case.create({
+        data: {
+          tenantId: ctx.tenantId,
+          branchId: branch.id,
+          clientId: client.id,
+          leadId: lead.id,
+          caseType: s.caseInterest,
+          lawyerId: lawyer.id,
+          status: 'PENDING_DOCUMENTS',
+          retainerFeeCents: 250000,
+          notes: '[demo] sample case — safe to delete.',
+        },
+      });
+    }
+
+    // One booked appointment for the third lead, tomorrow at 10am.
+    const tomorrow = new Date(now + 24 * 60 * 60 * 1000);
+    tomorrow.setHours(10, 0, 0, 0);
+    const thirdLead = leads[2];
+    if (thirdLead) {
+      await ctx.prisma.appointment.create({
+        data: {
+          tenantId: ctx.tenantId,
+          providerId: lawyer.id,
+          branchId: branch.id,
+          leadId: thirdLead.id,
+          scheduledAt: tomorrow,
+          durationMin: 30,
+          kind: 'consultation',
+          status: 'SCHEDULED',
+          createdBy: ctx.session.sub,
+          notes: '[demo] sample appointment — safe to delete.',
+        },
+      });
+    }
+
+    await ctx.prisma.auditLog.create({
+      data: {
+        tenantId: ctx.tenantId,
+        actorId: ctx.session.sub,
+        actorType: 'USER',
+        action: 'tenant.loadDemoData',
+        targetType: 'Tenant',
+        targetId: ctx.tenantId,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent ?? null,
+      },
+    });
+
+    return { ok: true, leads: leads.length, clients: 2, cases: 2, appointments: 1 };
+  }),
+
+  /**
+   * Wipe demo data. Matches by [demo] tag in notes. Skips real data.
+   */
+  wipeDemoData: requirePermission('settings', 'write').mutation(async ({ ctx }) => {
+    const r = await ctx.prisma.$transaction(async (tx) => {
+      const apps = await tx.appointment.deleteMany({
+        where: { tenantId: ctx.tenantId, notes: { contains: '[demo]' } },
+      });
+      const cases = await tx.case.deleteMany({
+        where: { tenantId: ctx.tenantId, notes: { contains: '[demo]' } },
+      });
+      const clients = await tx.client.deleteMany({
+        where: { tenantId: ctx.tenantId, notes: { contains: '[demo]' } },
+      });
+      const leads = await tx.lead.deleteMany({
+        where: { tenantId: ctx.tenantId, notes: { contains: '[demo]' } },
+      });
+      return {
+        appointments: apps.count,
+        cases: cases.count,
+        clients: clients.count,
+        leads: leads.count,
+      };
+    });
+    await ctx.prisma.auditLog.create({
+      data: {
+        tenantId: ctx.tenantId,
+        actorId: ctx.session.sub,
+        actorType: 'USER',
+        action: 'tenant.wipeDemoData',
+        targetType: 'Tenant',
+        targetId: ctx.tenantId,
+        payload: r,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent ?? null,
+      },
+    });
+    return { ok: true, ...r };
+  }),
 });

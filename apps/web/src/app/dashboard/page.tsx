@@ -22,7 +22,7 @@ import {
   ThemeProvider,
   type Branding,
 } from '@onsecboad/ui';
-import { rpcQuery } from '../../lib/api';
+import { rpcMutation, rpcQuery } from '../../lib/api';
 import { getAccessToken } from '../../lib/session';
 import { AppShell, type ShellUser } from '../../components/AppShell';
 import { StatCard } from '../../components/StatCard';
@@ -229,6 +229,18 @@ function FirmDashboard({ me }: { me: Extract<Me, { kind: 'firm' }> }) {
         />
       </section>
 
+      {kpis &&
+      kpis.openLeads === 0 &&
+      kpis.casesInFlight === 0 &&
+      kpis.callsThisWeek === 0 ? (
+        <DemoDataPrompt
+          onLoaded={() => {
+            const token = getAccessToken();
+            void rpcQuery<DashboardKpis>('kpi.dashboard', undefined, { token }).then(setKpis);
+          }}
+        />
+      ) : null}
+
       {kpis && (kpis.intake.sentThisWeek > 0 || kpis.intake.filledThisWeek > 0) ? (
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatCard
@@ -401,4 +413,54 @@ function SecurityCard({ twoFAEnrolled }: { twoFAEnrolled: boolean }) {
 
 function firstName(s: string): string {
   return s.split(/\s+/)[0] ?? s;
+}
+
+function DemoDataPrompt({ onLoaded }: { onLoaded: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return null;
+  async function load(): Promise<void> {
+    setBusy(true);
+    setErr(null);
+    try {
+      const token = getAccessToken();
+      await rpcMutation('tenant.loadDemoData', undefined, { token });
+      setHidden(true);
+      onLoaded();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <CardTitle>Want to see what a populated firm looks like?</CardTitle>
+          <CardBody className="mt-1 text-sm text-[var(--color-text-muted)]">
+            Loads 3 sample leads, 2 cases, and 1 booked appointment so you can click around.
+            All are tagged <span className="font-mono">[demo]</span> — wipe them anytime from
+            Settings.
+          </CardBody>
+          {err ? (
+            <div className="mt-2 text-xs text-[var(--color-danger)]">{err}</div>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <Button onClick={load} disabled={busy}>
+            {busy ? 'Loading…' : 'Load demo data'}
+          </Button>
+          <button
+            type="button"
+            onClick={() => setHidden(true)}
+            className="text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          >
+            No thanks
+          </button>
+        </div>
+      </div>
+    </Card>
+  );
 }

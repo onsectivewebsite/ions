@@ -1066,6 +1066,176 @@ export const authRouter = router({
       return { ok: true, email: newEmail };
     }),
 
+  /**
+   * Self-serve signup. Creates a Tenant in PROVISIONING + system roles +
+   * a placeholder branch + a FIRM_ADMIN user in INVITED state, then mints
+   * a setup token and emails the link. The user clicks through to /setup
+   * to choose their password + branding. No Stripe yet — billing is wired
+   * later from /settings/billing.
+   *
+   * Rate-limited per IP (3/hour) and per email (1/hour) via Redis to keep
+   * abuse minimal. Slug uniqueness is enforced; clashes return CONFLICT.
+   */
+  selfSignup: publicProcedure
+    .input(
+      z.object({
+        legalName: z.string().min(2).max(200),
+        displayName: z.string().min(2).max(200),
+        slug: z.string().regex(/^[a-z0-9-]{3,40}$/, 'Use 3-40 lowercase letters, digits, dashes'),
+        contactName: z.string().min(2).max(200),
+        contactEmail: z.string().email().max(200),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Rate limit: 3 sign-ups per IP per hour, 1 per email per hour.
+      const ipKey = `auth:signup:ip:${ctx.ip ?? 'unknown'}`;
+      const emailKey = `auth:signup:email:${input.contactEmail.toLowerCase()}`;
+      const ipCount = await redis.incr(ipKey);
+      if (ipCount === 1) await redis.expire(ipKey, 3600);
+      if (ipCount > 3) {
+        throw new TRPCError({
+          code: 'TOO_MANY_REQUESTS',
+          message: 'Too many signups from this address. Try again in an hour.',
+        });
+      }
+      const emailCount = await redis.incr(emailKey);
+      if (emailCount === 1) await redis.expire(emailKey, 3600);
+      if (emailCount > 1) {
+        throw new TRPCError({
+          code: 'TOO_MANY_REQUESTS',
+          message: 'A signup is already in progress for that email. Check your inbox.',
+        });
+      }
+
+      // Slug uniqueness.
+      const slugTaken = await ctx.prisma.tenant.findUnique({
+        where: { slug: input.slug },
+      });
+      if (slugTaken) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'That URL is taken. Pick another.' });
+      }
+
+      // Lazy imports to keep the auth router slim.
+      const { SYSTEM_ROLES } = await import('../lib/system-roles.js');
+      const { sendSetupInviteEmail } = await import('@onsecboad/email');
+      const { tenantEmailBrand } = await import('../lib/email-brand.js');
+      const { createHash: ch } = await import('node:crypto');
+
+      const tenant = await ctx.prisma.tenant.create({
+        data: {
+          legalName: input.legalName,
+          displayName: input.displayName,
+          slug: input.slug,
+          status: 'PROVISIONING',
+          packageTier: 'STARTER',
+          seatCount: 1,
+          branding: { themeCode: 'maple', customPrimary: null, logoUrl: null },
+          contactName: input.contactName,
+          contactEmail: input.contactEmail,
+          // 14-day trial; billing.setup wires Stripe later.
+          trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      for (const def of SYSTEM_ROLES) {
+        await ctx.prisma.role.create({
+          data: {
+            tenantId: tenant.id,
+            name: def.name,
+            isSystem: true,
+            permissions: def.permissions,
+          },
+        });
+      }
+      const adminRole = await ctx.prisma.role.findFirst({
+        where: { tenantId: tenant.id, name: 'FIRM_ADMIN' },
+      });
+      if (!adminRole) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Role bootstrap failed' });
+      }
+
+      const branch = await ctx.prisma.branch.create({
+        data: {
+          tenantId: tenant.id,
+          name: 'Main',
+          address: { country: 'CA' },
+          phone: '',
+        },
+      });
+
+      const placeholderHash = await hashPassword(
+        'AwaitingSetup_DoNotUse_' + randomBytes(8).toString('hex'),
+      );
+      await ctx.prisma.user.create({
+        data: {
+          tenantId: tenant.id,
+          email: input.contactEmail,
+          name: input.contactName,
+          passwordHash: placeholderHash,
+          roleId: adminRole.id,
+          branchId: branch.id,
+          status: 'INVITED',
+          invitedAt: new Date(),
+        },
+      });
+
+      const tokenRaw = randomBytes(32).toString('base64url');
+      const tokenHash = ch('sha256').update(tokenRaw).digest('hex');
+      const ttlDays = 7;
+      const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
+      await ctx.prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          setupTokenHash: tokenHash,
+          setupTokenExpiresAt: expiresAt,
+        },
+      });
+
+      const setupUrl = `${env.APP_URL.replace(/\/$/, '')}/setup?token=${tokenRaw}`;
+
+      let emailSent = false;
+      let emailError: string | null = null;
+      try {
+        const result = await sendSetupInviteEmail({
+          to: input.contactEmail,
+          recipientName: input.contactName,
+          firmName: input.displayName,
+          setupUrl,
+          ttlDays,
+          brand: tenantEmailBrand({
+            displayName: input.displayName,
+            branding: tenant.branding,
+          }),
+        });
+        emailSent = result.ok;
+        if (!result.ok) emailError = result.error ?? 'unknown';
+      } catch (e) {
+        emailError = e instanceof Error ? e.message : 'send failed';
+      }
+
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: tenant.id,
+          actorId: tenant.id,
+          actorType: 'SYSTEM',
+          action: 'tenant.selfSignup',
+          targetType: 'Tenant',
+          targetId: tenant.id,
+          payload: { contactEmail: input.contactEmail, slug: input.slug, emailSent },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+
+      return {
+        ok: true,
+        tenantId: tenant.id,
+        contactEmail: input.contactEmail,
+        emailSent,
+        emailError,
+      };
+    }),
+
   // Used only by ops to seed a password without going through invite flow (Phase 0).
   _devSetPassword: publicProcedure
     .input(z.object({ email: z.string().email(), password: z.string().min(8) }))
