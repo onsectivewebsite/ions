@@ -165,6 +165,7 @@ model User {
   phone           String?
   passwordHash    String?
   twoFASecret     String?
+  notificationPrefs Json?
   branchId        String?    @db.Uuid
   branch          Branch?    @relation("BranchUsers", fields: [branchId], references: [id])
   managedBranches Branch[]   @relation("BranchManager")

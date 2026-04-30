@@ -313,6 +313,43 @@ export const userRouter = router({
       return { ok: true, inviteUrl, emailSent, emailError };
     }),
 
+  /** Self-only — fetch + update the signed-in user's notification toggles. */
+  getNotificationPrefs: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.session.scope !== 'firm') return null;
+    const u = await ctx.prisma.user.findUnique({
+      where: { id: ctx.session.sub },
+      select: { notificationPrefs: true },
+    });
+    return u?.notificationPrefs ?? null;
+  }),
+
+  updateNotificationPrefs: protectedProcedure
+    .input(
+      z.object({
+        email: z.object({
+          leadAssigned: z.boolean(),
+          appointmentReminder: z.boolean(),
+          caseStatus: z.boolean(),
+          billingReceipt: z.boolean(),
+          weeklyDigest: z.boolean(),
+        }),
+        sms: z.object({
+          appointmentReminder: z.boolean(),
+          leadUrgent: z.boolean(),
+        }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.session.scope !== 'firm') {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Firm-only' });
+      }
+      await ctx.prisma.user.update({
+        where: { id: ctx.session.sub },
+        data: { notificationPrefs: input },
+      });
+      return { ok: true };
+    }),
+
   update: requirePermission('users', 'write')
     .input(
       z.object({

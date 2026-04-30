@@ -875,6 +875,94 @@ export const authRouter = router({
       return { ok: true };
     }),
 
+  /**
+   * In-app email change. Verifies current password, swaps the email,
+   * fires a notice to the OLD address so an attacker can't quietly
+   * change it to lock the user out. Skips a full email-verification
+   * round-trip in v1 — the password gate is the safeguard.
+   */
+  changeEmail: protectedProcedure
+    .input(
+      z.object({
+        currentPassword: z.string().min(1),
+        newEmail: z.string().email().max(200),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const isPlatform = ctx.session.scope === 'platform';
+      const userId = ctx.session.sub;
+      const newEmail = input.newEmail.toLowerCase().trim();
+      const user = isPlatform
+        ? await ctx.prisma.platformUser.findUnique({ where: { id: userId } })
+        : await ctx.prisma.user.findUnique({ where: { id: userId } });
+      if (!user || !user.passwordHash) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+      const ok = await verifyPassword(user.passwordHash, input.currentPassword);
+      if (!ok) {
+        throw new TRPCError({
+          code: 'UNAUTHORIZED',
+          message: 'Current password is incorrect.',
+        });
+      }
+      const oldEmail = user.email;
+      if (oldEmail.toLowerCase() === newEmail) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'New email matches the current one.',
+        });
+      }
+      // Uniqueness check inside scope.
+      if (isPlatform) {
+        const taken = await ctx.prisma.platformUser.findUnique({ where: { email: newEmail } });
+        if (taken) {
+          throw new TRPCError({ code: 'CONFLICT', message: 'That email is already in use.' });
+        }
+        await ctx.prisma.platformUser.update({
+          where: { id: userId },
+          data: { email: newEmail },
+        });
+      } else {
+        const tenantId = ctx.session.tenantId!;
+        const taken = await ctx.prisma.user.findFirst({
+          where: { tenantId, email: newEmail, deletedAt: null },
+        });
+        if (taken) {
+          throw new TRPCError({ code: 'CONFLICT', message: 'That email is already in use.' });
+        }
+        await ctx.prisma.user.update({
+          where: { id: userId },
+          data: { email: newEmail },
+        });
+      }
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.session.scope === 'firm' ? (ctx.session.tenantId ?? null) : null,
+          actorId: userId,
+          actorType: isPlatform ? 'PLATFORM' : 'USER',
+          action: 'auth.email.change',
+          targetType: isPlatform ? 'PlatformUser' : 'User',
+          targetId: userId,
+          payload: { from: oldEmail, to: newEmail },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+      // Notify the OLD address so the user notices an unauthorised change.
+      const recipient = isPlatform
+        ? await recipientForPlatform(ctx.prisma, userId)
+        : await recipientForFirmUser(ctx.prisma, userId);
+      if (recipient) {
+        // Override the recipient so the notice goes to the old email.
+        await fireSecurityEvent(
+          { ...recipient, to: oldEmail },
+          'password_changed',
+          { ip: ctx.ip, userAgent: ctx.userAgent },
+        );
+      }
+      return { ok: true, email: newEmail };
+    }),
+
   // Used only by ops to seed a password without going through invite flow (Phase 0).
   _devSetPassword: publicProcedure
     .input(z.object({ email: z.string().email(), password: z.string().min(8) }))

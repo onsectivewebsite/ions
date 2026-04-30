@@ -13,6 +13,7 @@ import {
   type Branding,
 } from '@onsecboad/ui';
 import { rpcMutation, rpcQuery } from '../../lib/api';
+import { setAccessToken } from '../../lib/session';
 import { Logo } from '../../components/Logo';
 import {
   PasswordField,
@@ -89,7 +90,12 @@ function SetupInner() {
     setError(null);
     setSubmitting(true);
     try {
-      await rpcMutation('setup.complete', {
+      const r = await rpcMutation<{
+        ok: true;
+        accessToken: string;
+        refreshToken: string;
+        accessExpiresAt: string;
+      }>('setup.complete', {
         token,
         password,
         branding,
@@ -103,7 +109,8 @@ function SetupInner() {
           country: 'CA',
         },
       });
-      router.push('/sign-in?setup=complete');
+      setAccessToken(r.accessToken);
+      router.push('/onboarding/secure');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed');
     } finally {

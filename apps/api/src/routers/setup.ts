@@ -1,8 +1,11 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
-import { hashPassword } from '@onsecboad/auth';
+import { hashPassword, signAccessToken, generateRefreshToken } from '@onsecboad/auth';
+import { loadEnv } from '@onsecboad/config';
 import { router, publicProcedure } from '../trpc.js';
+
+const env = loadEnv();
 
 const brandingSchema = z.object({
   themeCode: z.enum(['maple', 'glacier', 'forest', 'slate', 'aurora', 'midnight', 'custom']),
@@ -130,6 +133,33 @@ export const setupRouter = router({
         }),
       ]);
 
-      return { ok: true, adminEmail: admin.email };
+      // Mint tokens so the wizard can drop them straight into the
+      // /onboarding/secure flow instead of bouncing through /sign-in.
+      const claims = {
+        sub: admin.id,
+        scope: 'firm' as const,
+        tenantId: t.id,
+        roleId: admin.roleId,
+        ...(admin.branchId ? { branchId: admin.branchId } : {}),
+      };
+      const access = await signAccessToken(claims, env.JWT_ACCESS_SECRET, env.ACCESS_TOKEN_TTL_SEC);
+      const refresh = generateRefreshToken();
+      const expiresAt = new Date(Date.now() + env.REFRESH_TOKEN_TTL_SEC * 1000);
+      await ctx.prisma.session.create({
+        data: {
+          userId: admin.id,
+          refreshTokenHash: refresh.hash,
+          device: ctx.userAgent ?? 'unknown',
+          ip: ctx.ip,
+          expiresAt,
+        },
+      });
+      return {
+        ok: true,
+        adminEmail: admin.email,
+        accessToken: access.token,
+        refreshToken: refresh.token,
+        accessExpiresAt: access.expiresAt.toISOString(),
+      };
     }),
 });

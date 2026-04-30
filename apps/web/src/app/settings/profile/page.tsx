@@ -13,6 +13,7 @@ import {
 } from '@onsecboad/ui';
 import { rpcMutation, rpcQuery } from '../../../lib/api';
 import { getAccessToken } from '../../../lib/session';
+import { Input, Label } from '@onsecboad/ui';
 import { AppShell, type ShellUser } from '../../../components/AppShell';
 import {
   PasswordField,
@@ -37,6 +38,12 @@ export default function ProfilePage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+
+  const [emailCurrent, setEmailCurrent] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailErr, setEmailErr] = useState<string | null>(null);
+  const [emailDone, setEmailDone] = useState(false);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -77,6 +84,28 @@ export default function ProfilePage() {
       setErr(e instanceof Error ? e.message : 'Failed to change password');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function changeEmail(): Promise<void> {
+    setEmailErr(null);
+    setEmailDone(false);
+    setEmailBusy(true);
+    try {
+      const token = getAccessToken();
+      const r = await rpcMutation<{ ok: true; email: string }>(
+        'auth.changeEmail',
+        { currentPassword: emailCurrent, newEmail },
+        { token },
+      );
+      setEmailDone(true);
+      setEmailCurrent('');
+      setNewEmail('');
+      setMe((m) => (m ? { ...m, email: r.email } : m));
+    } catch (e) {
+      setEmailErr(e instanceof Error ? e.message : 'Failed to change email');
+    } finally {
+      setEmailBusy(false);
     }
   }
 
@@ -180,6 +209,49 @@ export default function ProfilePage() {
                   disabled={busy || !current || !next || !confirm}
                 >
                   {busy ? 'Saving…' : 'Update password'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <CardTitle>Change email</CardTitle>
+            <CardBody className="mt-1 text-xs text-[var(--color-text-muted)]">
+              We&rsquo;ll notify your current address that the change happened.
+            </CardBody>
+            <div className="mt-4 space-y-3 max-w-md">
+              <label className="block text-xs">
+                <Label className="mb-1 block">New email</Label>
+                <Input
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="you@firm.com"
+                />
+              </label>
+              <label className="block text-xs">
+                <Label className="mb-1 block">Current password</Label>
+                <PasswordField
+                  value={emailCurrent}
+                  onChange={(e) => setEmailCurrent(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </label>
+              {emailErr ? (
+                <div className="text-xs text-[var(--color-danger)]">{emailErr}</div>
+              ) : null}
+              {emailDone ? (
+                <div className="inline-flex items-center gap-1 text-xs text-[var(--color-success)]">
+                  <Check size={12} />
+                  Email updated.
+                </div>
+              ) : null}
+              <div className="flex justify-end">
+                <Button
+                  onClick={changeEmail}
+                  disabled={emailBusy || !newEmail || !emailCurrent}
+                >
+                  {emailBusy ? 'Saving…' : 'Update email'}
                 </Button>
               </div>
             </div>
