@@ -1,10 +1,8 @@
 /**
- * Staff dashboard — first authenticated screen.
+ * Staff dashboard — Home tab.
  *
- * Shows the signed-in user + their tenant + a few headline counts
- * (assigned cases, unread messages, today's appointments). Phase 9.1
- * intentionally keeps this read-only; navigation graph for cases / queue
- * / calendar lands in 9.2.
+ * Headline counts + recent rows. Tap a card to drill into the relevant
+ * tab. Pull-to-refresh and 401-bounce-to-sign-in carry over from 9.1.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { router, useFocusEffect } from 'expo-router';
@@ -19,8 +17,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { rpcQuery, RpcError } from '../../src/shared/api';
-import { getStaffToken, setStaffToken } from '../../src/shared/session';
+import { rpcQuery, RpcError } from '../../../src/shared/api';
+import { getStaffToken, setStaffToken } from '../../../src/shared/session';
 
 type Me = {
   kind: 'firm';
@@ -150,10 +148,14 @@ export default function DashboardScreen() {
             <Text style={styles.muted}>No cases yet.</Text>
           ) : (
             cases.slice(0, 5).map((c) => (
-              <View key={c.id} style={styles.row}>
+              <Pressable
+                key={c.id}
+                onPress={() => router.push(`/(staff)/cases/${c.id}`)}
+                style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
+              >
                 <Text style={styles.rowText}>{c.caseType.replace('_', ' ')}</Text>
                 <Text style={styles.rowMeta}>{c.status.replaceAll('_', ' ')}</Text>
-              </View>
+              </Pressable>
             ))
           )}
         </View>
@@ -164,19 +166,19 @@ export default function DashboardScreen() {
             <Text style={styles.muted}>No leads in your queue.</Text>
           ) : (
             leads.slice(0, 5).map((l) => (
-              <View key={l.id} style={styles.row}>
+              <Pressable
+                key={l.id}
+                onPress={() => router.push(`/(staff)/leads/${l.id}`)}
+                style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
+              >
                 <Text style={styles.rowText}>
                   {[l.firstName, l.lastName].filter(Boolean).join(' ') || 'Unnamed lead'}
                 </Text>
                 <Text style={styles.rowMeta}>{l.status}</Text>
-              </View>
+              </Pressable>
             ))
           )}
         </View>
-
-        <Text style={styles.footnote}>
-          Mobile staff app · Phase 9.1. Full case + call screens land in 9.2.
-        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -209,7 +211,6 @@ const styles = StyleSheet.create({
   rowText: { color: '#111827', fontSize: 14, textTransform: 'capitalize' },
   rowMeta: { color: '#6b7280', fontSize: 12, textTransform: 'capitalize' },
   muted: { color: '#6b7280', fontSize: 13 },
-  footnote: { textAlign: 'center', color: '#9ca3af', fontSize: 11, marginTop: 16 },
   errorCard: { backgroundColor: '#FEF2F2', borderColor: '#FECACA', borderWidth: 1, borderRadius: 8, padding: 12 },
   errorText: { color: '#991B1B', fontSize: 13 },
 });

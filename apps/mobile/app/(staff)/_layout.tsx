@@ -37,7 +37,7 @@ export default function StaffLayout() {
     return <Redirect href="/(staff)/sign-in" />;
   }
   if (authState === 'signed-in' && onAuthRoute) {
-    return <Redirect href="/(staff)/dashboard" />;
+    return <Redirect href="/(staff)/(tabs)" />;
   }
   return <Stack screenOptions={{ headerShown: false }} />;
 }
