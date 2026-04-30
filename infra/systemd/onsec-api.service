@@ -1,0 +1,20 @@
+[Unit]
+Description=OnsecBoad API
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=ions-api
+Group=ions-api
+WorkingDirectory=/home/ions-api/htdocs/api.onsective.cloud
+EnvironmentFile=/home/ions-api/htdocs/api.onsective.cloud/.env
+Environment=PORT=4000
+ExecStart=/usr/bin/pnpm --filter @onsecboad/api start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+[Unit]
+Description=OnsecBoad Web
+After=network.target onsec-api.service
+
+[Service]
+Type=simple
+User=ions
+Group=ions
+WorkingDirectory=/home/ions/htdocs/onsective.cloud
+EnvironmentFile=/home/ions/htdocs/onsective.cloud/.env
+Environment=PORT=4001
+ExecStart=/usr/bin/pnpm --filter @onsecboad/web start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
