@@ -101,6 +101,8 @@ export default function ClientFilesScreen() {
         text: 'Sign out',
         style: 'destructive',
         onPress: async () => {
+          const { unregisterPush } = await import('../../../src/shared/push');
+          await unregisterPush();
           await setClientToken(null);
           router.replace('/(client)/sign-in');
         },

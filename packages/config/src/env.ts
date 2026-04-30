@@ -70,6 +70,15 @@ const envSchema = z.object({
   // immigration firm hours.
   CRON_AI_AGENT_TICK: z.string().default('0 14 * * *'),
 
+  // Phase 9.5 — Expo Push delivery. Default true so dev doesn't fan out
+  // to phantom devices; flip to false in prod once devices are wired.
+  PUSH_DRY_RUN: z
+    .string()
+    .transform((v) => v === 'true' || v === '1')
+    .pipe(z.boolean())
+    .default('true'),
+  EXPO_ACCESS_TOKEN: z.string().optional(),
+
   ANTHROPIC_API_KEY: z.string().optional(),
   // Default model for Phase 6 AI extraction. Override per-tenant if a firm
   // wants to use a different tier (Sonnet for cheaper/faster extraction).

@@ -37,6 +37,7 @@ import { messageRouter } from './routers/message.js';
 import { aiSettingsRouter } from './routers/ai-settings.js';
 import { aiUsageRouter } from './routers/ai-usage.js';
 import { aiAgentRouter } from './routers/ai-agent.js';
+import { pushRouter } from './routers/push.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -78,6 +79,7 @@ export const appRouter = router({
   aiSettings: aiSettingsRouter,
   aiUsage: aiUsageRouter,
   aiAgent: aiAgentRouter,
+  push: pushRouter,
 });
 
 export type AppRouter = typeof appRouter;

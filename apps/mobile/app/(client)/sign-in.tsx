@@ -23,6 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { rpcMutation, RpcError } from '../../src/shared/api';
 import { setClientToken } from '../../src/shared/session';
+import { registerPush } from '../../src/shared/push';
 
 type SignInResp = { accessToken: string; expiresAt: string };
 
@@ -43,6 +44,8 @@ export default function ClientSignInScreen() {
         password,
       });
       await setClientToken(r.accessToken);
+      // Phase 9.5 — opportunistic push registration. Best-effort.
+      void registerPush('client', r.accessToken);
       router.replace('/(client)/(tabs)');
     } catch (err) {
       Alert.alert('Sign in', err instanceof RpcError ? err.message : 'Sign in failed');

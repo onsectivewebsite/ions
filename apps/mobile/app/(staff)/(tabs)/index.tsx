@@ -89,6 +89,8 @@ export default function DashboardScreen() {
         text: 'Sign out',
         style: 'destructive',
         onPress: async () => {
+          const { unregisterPush } = await import('../../../src/shared/push');
+          await unregisterPush();
           await setStaffToken(null);
           router.replace('/(staff)/sign-in');
         },

@@ -21,6 +21,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { rpcMutation, RpcError } from '../../src/shared/api';
 import { setStaffToken } from '../../src/shared/session';
+import { registerPush } from '../../src/shared/push';
 
 type VerifyResp = { accessToken: string; expiresAt: string };
 
@@ -50,7 +51,10 @@ export default function TwoFAScreen() {
         code: code.trim(),
       });
       await setStaffToken(r.accessToken);
-      router.replace('/(staff)/dashboard');
+      // Phase 9.5 — opportunistically register the device. Best-effort;
+      // never blocks the sign-in flow.
+      void registerPush('staff', r.accessToken);
+      router.replace('/(staff)/(tabs)');
     } catch (err) {
       Alert.alert('Verify', err instanceof RpcError ? err.message : 'Invalid code');
     } finally {

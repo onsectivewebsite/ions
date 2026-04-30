@@ -145,6 +145,23 @@ export const messageRouter = router({
           bodyPreview: preview(input.body),
         },
       );
+
+      // Phase 9.5 — push the staff reply to the client's mobile devices.
+      void (async () => {
+        const { clientAccountsForClient, pushToClientAccounts } = await import('../lib/push.js');
+        const tenant = await ctx.prisma.tenant.findUnique({
+          where: { id: ctx.tenantId },
+          select: { displayName: true },
+        });
+        const accountIds = await clientAccountsForClient(ctx.prisma, input.clientId);
+        if (accountIds.length === 0) return;
+        await pushToClientAccounts(accountIds, {
+          title: tenant?.displayName ?? 'Your firm',
+          body: preview(input.body),
+          data: { kind: 'message', clientId: input.clientId, caseId: input.caseId ?? null },
+        });
+      })();
+
       return msg;
     }),
 

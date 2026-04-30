@@ -71,7 +71,19 @@ const config: ExpoConfig = {
     output: 'static',
     favicon: './assets/favicon.png',
   },
-  plugins: ['expo-router', 'expo-secure-store'],
+  plugins: [
+    'expo-router',
+    'expo-secure-store',
+    [
+      'expo-notifications',
+      {
+        // Default Expo notification icon — swap to firm assets when bundle
+        // ids land on real Apple/Google accounts.
+        icon: './assets/notification-icon.png',
+        color: '#B5132B',
+      },
+    ],
+  ],
   experiments: {
     typedRoutes: true,
   },

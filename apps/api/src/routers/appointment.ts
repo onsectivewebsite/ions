@@ -239,6 +239,24 @@ export const appointmentRouter = router({
           providerId: input.providerId,
         },
       );
+
+      // Phase 9.5 — push to the provider's mobile devices.
+      void (async () => {
+        const { pushToUsers } = await import('../lib/push.js');
+        const when = appt.scheduledAt.toLocaleString('en-CA', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        });
+        await pushToUsers([input.providerId], {
+          title: 'New appointment',
+          body: `${when} · ${appt.kind}${appt.caseType ? ` · ${appt.caseType.replace('_', ' ')}` : ''}`,
+          data: { kind: 'appointment', id: appt.id },
+        });
+      })();
+
       return appt;
     }),
 

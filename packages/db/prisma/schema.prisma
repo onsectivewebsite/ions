@@ -108,6 +108,8 @@ model Tenant {
   aiSettings                 AiSettings?
   aiUsage                    AiUsage[]
   aiAgentRuns                AiAgentRun[]
+  // Phase 9.5 back-relations
+  pushDevices                PushDevice[]
 
   @@index([status])
 }
@@ -183,6 +185,7 @@ model User {
   casesAsLawyer   Case[]    @relation("CaseLawyer")
   casesAsFiler    Case[]    @relation("CaseFiler")
   retainersApproved RetainerAgreement[] @relation("RetainerApprovedBy")
+  pushDevices     PushDevice[]
 
   @@unique([tenantId, email])
   @@index([tenantId, roleId])
@@ -1012,6 +1015,7 @@ model ClientPortalAccount {
   updatedAt   DateTime @updatedAt
 
   sessions    ClientPortalSession[]
+  pushDevices PushDevice[]
 
   @@unique([tenantId, email])
 }
@@ -1377,4 +1381,33 @@ model AiAgentRun {
 
   @@index([tenantId, caseId, startedAt])
   @@index([tenantId, status, startedAt])
+}
+
+// ─── Phase 9.5: Push notifications ──────────────────────────────────────
+
+// One row per registered device. Exactly one of `userId` or
+// `clientPortalAccountId` is set — staff devices link to User; client
+// portal devices link to ClientPortalAccount.
+//
+// `expoPushToken` is unique globally (Expo Push Service rotates them
+// when re-installs happen — we upsert by token to keep one row per
+// physical device). Tenant is denormalised so the push helper can pull
+// "all staff devices for tenant X" without joining through User.
+model PushDevice {
+  id                    String                @id @default(uuid()) @db.Uuid
+  tenantId              String                @db.Uuid
+  tenant                Tenant                @relation(fields: [tenantId], references: [id])
+  userId                String?               @db.Uuid
+  user                  User?                 @relation(fields: [userId], references: [id])
+  clientPortalAccountId String?               @db.Uuid
+  clientPortalAccount   ClientPortalAccount?  @relation(fields: [clientPortalAccountId], references: [id])
+  expoPushToken         String                @unique
+  platform              String                // 'ios' | 'android' | 'web'
+  variant               String                // 'staff' | 'client'
+  lastUsedAt            DateTime              @default(now())
+  createdAt             DateTime              @default(now())
+
+  @@index([tenantId, variant])
+  @@index([userId])
+  @@index([clientPortalAccountId])
 }

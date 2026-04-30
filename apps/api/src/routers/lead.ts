@@ -315,6 +315,16 @@ export const leadRouter = router({
             phone: lead.phone ?? undefined,
           },
         );
+        // Phase 9.5 — push to the assignee's mobile devices.
+        const fullName = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || lead.phone || 'New lead';
+        void (async () => {
+          const { pushToUsers } = await import('../lib/push.js');
+          await pushToUsers([input.userId!], {
+            title: 'New lead assigned',
+            body: `${fullName}${lead.caseInterest ? ` · ${lead.caseInterest.replace('_', ' ')}` : ''}`,
+            data: { kind: 'lead', id: lead.id },
+          });
+        })();
       }
       return { ok: true };
     }),

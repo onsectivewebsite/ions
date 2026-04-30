@@ -1,20 +1,22 @@
 /**
- * Root layout — picks the variant entry based on APP_VARIANT.
+ * Root layout — picks the variant entry based on APP_VARIANT and wires
+ * the global push-notification tap handler.
  *
  * expo-router scans this directory tree and builds a navigation graph.
  * The variants live under `(staff)`, `(client)`, `(tv)` route groups.
- * The root layout decides which one's the entry by reading
- * Constants.expoConfig?.extra?.appVariant.
- *
- * In Phase 9.1 only the staff variant has actual screens; client and tv
- * are placeholder splashes.
  */
+import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { attachNotificationTapHandler } from '../src/shared/push';
 
 export default function RootLayout() {
+  useEffect(() => {
+    return attachNotificationTapHandler();
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
