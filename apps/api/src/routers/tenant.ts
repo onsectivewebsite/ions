@@ -4,7 +4,7 @@ import { router, firmProcedure } from '../trpc.js';
 const brandingSchema = z.object({
   themeCode: z.enum(['maple', 'glacier', 'forest', 'slate', 'aurora', 'midnight', 'custom']),
   customPrimary: z.string().regex(/^#[0-9a-f]{6}$/i).nullable().optional(),
-  logoUrl: z.string().url().nullable().optional(),
+  logoUrl: z.string().nullable().optional(),
 });
 
 export const tenantRouter = router({
@@ -16,9 +16,18 @@ export const tenantRouter = router({
   brandingUpdate: firmProcedure
     .input(brandingSchema)
     .mutation(async ({ ctx, input }) => {
+      // Preserve internal fields the client doesn't manage (logoR2Key set by
+      // the upload route). Merge instead of overwrite so saving the form
+      // doesn't lose the R2 key.
+      const existing = await ctx.prisma.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { branding: true },
+      });
+      const prev = (existing?.branding ?? {}) as Record<string, unknown>;
+      const merged = { ...prev, ...input };
       await ctx.prisma.tenant.update({
         where: { id: ctx.tenantId },
-        data: { branding: input },
+        data: { branding: merged },
       });
       await ctx.prisma.auditLog.create({
         data: {

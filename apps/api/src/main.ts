@@ -33,6 +33,7 @@ import {
   portalUploadHandler,
 } from './routes/document-upload.js';
 import { pdfTemplateUploadHandler } from './routes/pdf-template-upload.js';
+import { uploadLogoHandler, logoProxyHandler } from './routes/tenant-logo.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
 const env = loadEnv();
@@ -92,6 +93,11 @@ app.post('/api/v1/portal/cases/:caseId/upload', fileBody, portalUploadHandler);
 
 // PDF form template uploads — same raw-bytes pattern as documents.
 app.post('/api/v1/pdf-templates', fileBody, pdfTemplateUploadHandler);
+
+// Tenant logo: 2MB raw image bytes for upload, public proxy for serving.
+const logoBody = express.raw({ type: 'image/*', limit: '2mb' });
+app.post('/api/v1/tenant/logo', logoBody, uploadLogoHandler);
+app.get('/api/v1/tenant/:tenantId/logo', logoProxyHandler);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

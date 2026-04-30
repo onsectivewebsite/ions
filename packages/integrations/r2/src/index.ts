@@ -103,6 +103,34 @@ export async function deleteObject(key: string): Promise<void> {
   await realClient!.send(new DeleteObjectCommand({ Bucket: env.R2_BUCKET!, Key: key }));
 }
 
+/**
+ * Fetches an object's bytes + content type. Used by the logo proxy to stream
+ * R2 contents through the API without exposing R2 to the public internet.
+ * Returns null when the key doesn't exist OR in dry-run mode.
+ */
+export async function getObject(
+  key: string,
+): Promise<{ body: Buffer; contentType: string } | null> {
+  if (r2Mode === 'dry-run') {
+    log('getObject', { key });
+    return null;
+  }
+  try {
+    const out = await realClient!.send(
+      new GetObjectCommand({ Bucket: env.R2_BUCKET!, Key: key }),
+    );
+    const stream = out.Body as { transformToByteArray?: () => Promise<Uint8Array> };
+    if (!stream?.transformToByteArray) return null;
+    const bytes = await stream.transformToByteArray();
+    return {
+      body: Buffer.from(bytes),
+      contentType: out.ContentType ?? 'application/octet-stream',
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Returns a 1-hour signed URL for a key (the docs spec). */
 export async function signedUrl(key: string, expiresInSeconds = 3600): Promise<string> {
   if (r2Mode === 'dry-run') {

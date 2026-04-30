@@ -154,19 +154,31 @@ export default function BrandingPage() {
               <Card>
                 <CardTitle>Logo</CardTitle>
                 <CardBody className="mt-3 text-sm text-[var(--color-text-muted)]">
-                  Paste a hosted URL. Direct upload to R2 ships in Phase 6.
+                  Upload a PNG, JPG, SVG, or WebP up to 2 MB. Or paste a hosted URL below.
                 </CardBody>
-                <Input
-                  className="mt-3"
-                  placeholder="https://your-cdn/logo.svg"
-                  value={branding.logoUrl ?? ''}
-                  onChange={(e) =>
-                    setBranding({
-                      ...branding,
-                      logoUrl: e.target.value.trim() || null,
-                    })
-                  }
+                <LogoUpload
+                  current={branding.logoUrl ?? null}
+                  onUploaded={(url) => {
+                    setBranding({ ...branding, logoUrl: url });
+                    setSavedAt(new Date());
+                  }}
                 />
+                <div className="mt-3">
+                  <Label htmlFor="logoUrl" className="mb-1 text-xs">
+                    Or paste a URL
+                  </Label>
+                  <Input
+                    id="logoUrl"
+                    placeholder="https://your-cdn/logo.svg"
+                    value={branding.logoUrl ?? ''}
+                    onChange={(e) =>
+                      setBranding({
+                        ...branding,
+                        logoUrl: e.target.value.trim() || null,
+                      })
+                    }
+                  />
+                </div>
               </Card>
 
               {error ? (
@@ -327,6 +339,85 @@ function MiniStat({
         <Icon size={11} className="text-[var(--color-text-muted)]" />
       </div>
       <div className="mt-0.5 text-base font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function LogoUpload({
+  current,
+  onUploaded,
+}: {
+  current: string | null;
+  onUploaded: (url: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function pick(file: File): Promise<void> {
+    setErr(null);
+    if (file.size > 2 * 1024 * 1024) {
+      setErr('Logo must be ≤ 2 MB.');
+      return;
+    }
+    if (!/^image\/(png|jpeg|svg\+xml|webp)$/.test(file.type)) {
+      setErr('Use PNG, JPG, SVG, or WebP.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+      const res = await fetch(`${apiBase}/api/v1/tenant/logo`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': file.type,
+          Authorization: `Bearer ${token ?? ''}`,
+        },
+        body: file,
+      });
+      const json = (await res.json()) as { ok: boolean; url?: string; error?: string };
+      if (!res.ok || !json.ok || !json.url) {
+        throw new Error(json.error ?? 'Upload failed');
+      }
+      // Append a cache-buster so the <img> reloads if the proxy URL is unchanged.
+      onUploaded(`${json.url}?v=${Date.now()}`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex items-center gap-3">
+      {current ? (
+        <img
+          src={current}
+          alt="Current logo"
+          className="h-12 w-12 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] object-contain p-1"
+        />
+      ) : (
+        <div className="flex h-12 w-12 items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[10px] text-[var(--color-text-muted)]">
+          No logo
+        </div>
+      )}
+      <div className="flex-1">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm hover:bg-[var(--color-surface-muted)]">
+          {busy ? 'Uploading…' : 'Upload image'}
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/svg+xml,image/webp"
+            disabled={busy}
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void pick(f);
+              e.target.value = '';
+            }}
+          />
+        </label>
+        {err ? <div className="mt-1 text-xs text-[var(--color-danger)]">{err}</div> : null}
+      </div>
     </div>
   );
 }
