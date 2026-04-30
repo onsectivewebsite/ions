@@ -113,6 +113,73 @@ app.get('/api/ready', async (_req, res) => {
   res.status(allOk ? 200 : 503).json({ ok: allOk, checks });
 });
 
+// Phase 10.2 — public health-full endpoint backing the status page.
+// Same probes as /ready plus integration-config visibility (Stripe key
+// configured? AI key? R2?). Public on purpose — the status page renders
+// this verbatim. Deliberately does NOT touch external services from the
+// request (no live Stripe/Twilio/Anthropic ping); just config + local
+// dependencies. Production health monitoring should use a separate
+// uptime probe (Better Stack, Pingdom, etc).
+app.get('/api/health/full', async (_req, res) => {
+  const components: Array<{ name: string; status: 'ok' | 'degraded' | 'down'; detail?: string }> = [];
+
+  try {
+    await prisma.$queryRawUnsafe('SELECT 1');
+    components.push({ name: 'database', status: 'ok' });
+  } catch (e) {
+    components.push({
+      name: 'database',
+      status: 'down',
+      detail: e instanceof Error ? e.message : 'unreachable',
+    });
+  }
+
+  try {
+    await redis.ping();
+    components.push({ name: 'redis', status: 'ok' });
+  } catch (e) {
+    components.push({
+      name: 'redis',
+      status: 'down',
+      detail: e instanceof Error ? e.message : 'unreachable',
+    });
+  }
+
+  const r2Configured =
+    !!env.R2_ENDPOINT && !!env.R2_ACCESS_KEY_ID && !!env.R2_SECRET_ACCESS_KEY && !!env.R2_BUCKET;
+  components.push({
+    name: 'r2',
+    status: r2Configured ? 'ok' : 'degraded',
+    detail: r2Configured ? undefined : 'dry-run (no R2 credentials configured)',
+  });
+
+  const stripeConfigured = !!env.STRIPE_SECRET_KEY && !env.STRIPE_DRY_RUN;
+  components.push({
+    name: 'stripe',
+    status: stripeConfigured ? 'ok' : 'degraded',
+    detail: stripeConfigured ? undefined : 'dry-run',
+  });
+
+  const aiConfigured = !!env.ANTHROPIC_API_KEY && !env.AI_DRY_RUN;
+  components.push({
+    name: 'ai',
+    status: aiConfigured ? 'ok' : 'degraded',
+    detail: aiConfigured ? undefined : 'dry-run',
+  });
+
+  const overall: 'ok' | 'degraded' | 'down' = components.some((c) => c.status === 'down')
+    ? 'down'
+    : components.some((c) => c.status === 'degraded')
+      ? 'degraded'
+      : 'ok';
+
+  res.status(overall === 'down' ? 503 : 200).json({
+    overall,
+    checkedAt: new Date().toISOString(),
+    components,
+  });
+});
+
 app.use(
   '/trpc',
   createExpressMiddleware({
