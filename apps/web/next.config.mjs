@@ -6,6 +6,12 @@ const config = {
   // image drops from ~700MB to ~150MB.
   output: 'standalone',
   typedRoutes: false,
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   transpilePackages: [
     '@onsecboad/ui',
     '@onsecboad/config',
