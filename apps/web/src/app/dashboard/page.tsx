@@ -176,26 +176,44 @@ function FirmDashboard({ me }: { me: Extract<Me, { kind: 'firm' }> }) {
       <HeroBanner
         eyebrow={`${me.tenant.displayName} · ${me.role.name}`}
         title={`Hi ${firstName(me.name)} 👋`}
-        body="Personalize your firm's branding, then invite teammates in Phase 2 to bring the rest of the workflow online."
-        cta={{ href: '/settings/branding', label: 'Open branding' }}
+        body="A walk-in client just arrived? Type their phone, send them an intake form, then book the consultation once they fill it."
+        cta={{ href: '/walkin', label: 'Start a walk-in' }}
       />
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Open leads" value="0" icon={Users} />
-        <StatCard label="Cases in flight" value="0" icon={Activity} tone="info" />
-        <StatCard label="This week (calls)" value="0" icon={CreditCard} tone="accent" />
-        <StatCard label="Pending invoices" value="$0" icon={CreditCard} tone="warning" />
+        <StatCard label="Open leads" value="—" icon={Users} />
+        <StatCard label="Cases in flight" value="—" icon={Activity} tone="info" />
+        <StatCard label="This week (calls)" value="—" icon={CreditCard} tone="accent" />
+        <StatCard label="Pending invoices" value="—" icon={CreditCard} tone="warning" />
       </section>
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardTitle>Your workspace is ready</CardTitle>
-          <CardBody className="mt-3 text-sm text-[var(--color-text-muted)]">
-            Foundation phase is live. The next features will plug in as we ship them — your data
-            will be there waiting.
+          <CardTitle>Quick actions</CardTitle>
+          <CardBody className="mt-2 text-sm text-[var(--color-text-muted)]">
+            The fastest paths from inbox to consultation.
           </CardBody>
-          <div className="mt-6 flex items-center justify-center">
-            <EmptyDashboard width={360} />
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <QuickAction
+              href="/walkin"
+              title="Walk-in lookup"
+              detail="Phone-first arrival flow — finds the client or starts a new one."
+            />
+            <QuickAction
+              href="/leads"
+              title="Browse leads"
+              detail="Triage your queue, send intakes, book consultations."
+            />
+            <QuickAction
+              href="/settings/intake-forms/new"
+              title="Build an intake form"
+              detail="Per-firm, per-case-type fields. Sent by email or QR."
+            />
+            <QuickAction
+              href="/f/users"
+              title="Invite a teammate"
+              detail="Lawyers, paralegals, receptionists — pick a role."
+            />
           </div>
         </Card>
 
@@ -207,7 +225,7 @@ function FirmDashboard({ me }: { me: Extract<Me, { kind: 'firm' }> }) {
               <Palette size={16} className="text-[var(--color-text-muted)]" />
             </div>
             <CardBody className="mt-3 text-sm text-[var(--color-text-muted)]">
-              Pick from six themes or use your brand color. Logo upload too.
+              Pick from six themes, paste your color, upload your logo.
             </CardBody>
             <Link href="/settings/branding" className="mt-4 inline-block">
               <Button variant="secondary" size="sm">
@@ -219,6 +237,32 @@ function FirmDashboard({ me }: { me: Extract<Me, { kind: 'firm' }> }) {
         </div>
       </section>
     </div>
+  );
+}
+
+function QuickAction({
+  href,
+  title,
+  detail,
+}: {
+  href: string;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group flex items-start justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm hover:bg-[var(--color-surface-muted)]"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="font-medium">{title}</div>
+        <div className="mt-1 text-xs text-[var(--color-text-muted)]">{detail}</div>
+      </div>
+      <ArrowRight
+        size={14}
+        className="mt-1 shrink-0 text-[var(--color-text-muted)] transition-transform group-hover:translate-x-0.5"
+      />
+    </Link>
   );
 }
 

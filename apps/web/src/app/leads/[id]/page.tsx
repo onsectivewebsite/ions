@@ -33,6 +33,7 @@ import { getAccessToken } from '../../../lib/session';
 import { AppShell, type ShellUser } from '../../../components/AppShell';
 import { IntakeForm, type IntakeField } from '../../../components/intake/IntakeForm';
 import { SendIntakeModal } from '../../../components/intake/SendIntakeModal';
+import { NotFoundPanel } from '../../../components/NotFoundPanel';
 
 type LeadStatus = 'NEW' | 'CONTACTED' | 'FOLLOWUP' | 'INTERESTED' | 'BOOKED' | 'CONVERTED' | 'LOST' | 'DNC';
 
@@ -156,6 +157,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [lead, setLead] = useState<Lead | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -172,8 +174,15 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
     try {
       const l = await rpcQuery<Lead>('lead.get', { id }, { token });
       setLead(l);
+      setLoadError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      const msg = err instanceof Error ? err.message : 'Failed to load';
+      // Distinguish "this lead doesn't exist" from a transient network error.
+      if (/not.?found/i.test(msg)) {
+        setLoadError('not-found');
+      } else {
+        setLoadError(msg);
+      }
     }
   }
 
@@ -211,13 +220,34 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
     }
   }
 
+  if (loadError === 'not-found' && me) {
+    const branding = me.tenant?.branding ?? { themeCode: 'maple' as const };
+    const shellUser: ShellUser = {
+      name: me.name,
+      email: me.email,
+      scope: 'firm',
+      contextLabel: me.tenant.displayName,
+    };
+    return (
+      <ThemeProvider branding={branding}>
+        <AppShell user={shellUser}>
+          <NotFoundPanel
+            title="Lead not found"
+            message="This lead doesn't exist anymore — it may have been deleted, or the link is wrong."
+            backHref="/leads"
+            backLabel="Back to leads"
+          />
+        </AppShell>
+      </ThemeProvider>
+    );
+  }
   if (!me || !lead) {
     return (
-      <main className="grid min-h-screen grid-cols-[240px_1fr]">
-        <div className="border-r border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+      <main className="grid min-h-screen md:grid-cols-[240px_1fr]">
+        <div className="hidden border-r border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:block">
           <Skeleton className="h-6 w-32" />
         </div>
-        <div className="space-y-4 p-8">
+        <div className="space-y-4 p-4 sm:p-8">
           <Skeleton className="h-12" />
           <Skeleton className="h-64" />
         </div>

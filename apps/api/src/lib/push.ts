@@ -40,8 +40,10 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 async function sendBatch(messages: ExpoMessage[]): Promise<void> {
   if (env.PUSH_DRY_RUN) {
-    // eslint-disable-next-line no-console
-    console.log('[push:dry-run]', messages.map((m) => ({ to: m.to, title: m.title })));
+    logger.debug(
+      { messages: messages.map((m) => ({ to: m.to, title: m.title })) },
+      '[push:dry-run]',
+    );
     return;
   }
   if (messages.length === 0) return;

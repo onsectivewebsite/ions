@@ -7,6 +7,7 @@ import { Button, Card, Input, Skeleton, ThemeProvider, type Branding } from '@on
 import { rpcMutation, rpcQuery } from '../../../lib/api';
 import { getAccessToken } from '../../../lib/session';
 import { AppShell, type ShellUser } from '../../../components/AppShell';
+import { NotFoundPanel } from '../../../components/NotFoundPanel';
 
 type Client = {
   id: string;
@@ -44,6 +45,7 @@ export default function ClientDetailPage() {
   const [edits, setEdits] = useState<Partial<Client>>({});
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -70,8 +72,13 @@ export default function ClientDetailPage() {
       .then((r) => {
         setResp(r);
         setEdits({});
+        setNotFound(false);
       })
-      .catch(() => router.replace('/clients'));
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : '';
+        if (/not.?found/i.test(msg)) setNotFound(true);
+        else router.replace('/clients');
+      });
   }, [me, params.id, router]);
 
   async function save(): Promise<void> {
@@ -92,13 +99,34 @@ export default function ClientDetailPage() {
     }
   }
 
+  if (notFound && me) {
+    const branding = me.tenant?.branding ?? { themeCode: 'maple' as const };
+    const shellUser: ShellUser = {
+      name: me.name,
+      email: me.email,
+      scope: 'firm',
+      contextLabel: me.tenant.displayName,
+    };
+    return (
+      <ThemeProvider branding={branding}>
+        <AppShell user={shellUser}>
+          <NotFoundPanel
+            title="Client not found"
+            message="This client doesn't exist anymore — it may have been deleted, or the link is wrong."
+            backHref="/clients"
+            backLabel="Back to clients"
+          />
+        </AppShell>
+      </ThemeProvider>
+    );
+  }
   if (!me || !resp) {
     return (
-      <main className="grid min-h-screen grid-cols-[240px_1fr]">
-        <div className="border-r border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+      <main className="grid min-h-screen md:grid-cols-[240px_1fr]">
+        <div className="hidden border-r border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:block">
           <Skeleton className="h-6 w-32" />
         </div>
-        <div className="space-y-4 p-8">
+        <div className="space-y-4 p-4 sm:p-8">
           <Skeleton className="h-12" />
           <Skeleton className="h-64" />
         </div>

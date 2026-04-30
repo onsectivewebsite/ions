@@ -231,9 +231,13 @@ export default function AppointmentsPage() {
                     </span>
                   </div>
                   {list.length === 0 ? (
-                    <div className="py-6 text-center text-xs text-[var(--color-text-muted)]">
+                    <div className="py-6 text-center">
                       <Calendar size={20} className="mx-auto mb-2 opacity-40" />
-                      Nothing booked for this day.
+                      <div className="text-xs font-medium">Nothing booked for this day</div>
+                      <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                        Open a lead and click <span className="font-medium">Book consult</span>{' '}
+                        once their intake is filled.
+                      </p>
                     </div>
                   ) : (
                     <ul className="mt-3 divide-y divide-[var(--color-border-muted)]">

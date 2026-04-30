@@ -452,9 +452,7 @@ function DryRunPayForm({
     // The real webhook would normally fire here. In dry-run we have no
     // Stripe to send the event, so the staff side won't see a CasePayment
     // until someone replays the webhook payload manually. The success
-    // screen + log explain this clearly.
-    // eslint-disable-next-line no-console
-    console.log('[stripe:dry-run] confirm', { paymentIntentId: config.paymentIntentId, card });
+    // screen explains this; we don't log card data even in dry-run.
     await new Promise((r) => setTimeout(r, 600));
     setBusy(false);
     await onCompleted();

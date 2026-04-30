@@ -12,17 +12,20 @@ import {
   ChevronDown,
   ClipboardList,
   CreditCard,
+  HelpCircle,
   History,
   Home,
   Inbox,
   KeyRound,
   LogOut,
   Megaphone,
+  Menu,
   Phone,
   Search,
   Settings,
   Shield,
   Users,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { Avatar, cn } from '@onsecboad/ui';
@@ -93,6 +96,7 @@ const FIRM_NAV: NavItem[] = [
 export function AppShell({ user, children }: { user: ShellUser; children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
   // Self-fetch permissions for firm users when the host page didn't pass them.
   // Platform users have no gate, so no fetch.
   const [fetchedPerms, setFetchedPerms] = useState<Permissions | null>(null);
@@ -108,6 +112,10 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
       .then((m) => setFetchedPerms(m.role?.permissions ?? null))
       .catch(() => setFetchedPerms(null));
   }, [user.scope, user.permissions]);
+  // Close mobile drawer on route change.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
   const effectivePerms = user.permissions ?? fetchedPerms;
   const allItems = user.scope === 'platform' ? PLATFORM_NAV : FIRM_NAV;
   const items = useMemo(
@@ -126,71 +134,124 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
     router.replace('/sign-in');
   }
 
-  return (
-    <div className="grid min-h-screen grid-cols-[240px_1fr] bg-[var(--color-bg)]">
-      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
-      <aside className="sticky top-0 flex h-screen flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="flex h-14 items-center px-5">
-          <Logo />
-        </div>
-        <div className="px-3 pb-2 pt-2">
-          <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs">
-            <div className="font-medium text-[var(--color-text)]">{user.contextLabel}</div>
-            <div className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
-              {user.scope === 'platform' ? 'Onsective Platform' : 'Workspace'}
-            </div>
+  const sidebarContent = (
+    <>
+      <div className="flex h-14 items-center justify-between px-5">
+        <Logo />
+        <button
+          type="button"
+          onClick={() => setMobileOpen(false)}
+          className="-mr-2 rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] md:hidden"
+          aria-label="Close menu"
+        >
+          <X size={16} />
+        </button>
+      </div>
+      <div className="px-3 pb-2 pt-2">
+        <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs">
+          <div className="font-medium text-[var(--color-text)]">{user.contextLabel}</div>
+          <div className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
+            {user.scope === 'platform' ? 'Onsective Platform' : 'Workspace'}
           </div>
         </div>
-        <nav className="flex-1 space-y-0.5 px-3 py-3">
-          {items.map((item) => {
-            const Icon = item.icon;
-            const active = pathname === item.href || pathname.startsWith(item.href + '/');
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  'flex items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 text-sm transition-colors',
-                  active
-                    ? 'bg-[color-mix(in_srgb,var(--color-primary)_12%,transparent)] text-[var(--color-primary)]'
-                    : 'text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]',
-                )}
-              >
-                <Icon size={16} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="border-t border-[var(--color-border)] p-3">
-          <Link
-            href="/settings/profile"
-            className="flex items-center gap-3 rounded-[var(--radius-md)] p-2 text-sm hover:bg-[var(--color-surface-muted)]"
-          >
-            <Avatar name={user.name} src={user.avatarUrl ?? null} size={32} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium leading-tight">{user.name}</div>
-              <div className="truncate text-[11px] text-[var(--color-text-muted)]">
-                {user.email}
-              </div>
+      </div>
+      <nav className="flex-1 space-y-0.5 px-3 py-3">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const active = pathname === item.href || pathname.startsWith(item.href + '/');
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 text-sm transition-colors',
+                active
+                  ? 'bg-[color-mix(in_srgb,var(--color-primary)_12%,transparent)] text-[var(--color-primary)]'
+                  : 'text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]',
+              )}
+            >
+              <Icon size={16} />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+      <div className="border-t border-[var(--color-border)] p-3">
+        <Link
+          href="/settings/profile"
+          className="flex items-center gap-3 rounded-[var(--radius-md)] p-2 text-sm hover:bg-[var(--color-surface-muted)]"
+        >
+          <Avatar name={user.name} src={user.avatarUrl ?? null} size={32} />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium leading-tight">{user.name}</div>
+            <div className="truncate text-[11px] text-[var(--color-text-muted)]">
+              {user.email}
             </div>
-          </Link>
-        </div>
+          </div>
+        </Link>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="min-h-screen bg-[var(--color-bg)] md:grid md:grid-cols-[240px_1fr]">
+      {/* ── Desktop sidebar ─────────────────────────────────────────────── */}
+      <aside className="sticky top-0 hidden h-screen flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] md:flex">
+        {sidebarContent}
       </aside>
+
+      {/* ── Mobile drawer ───────────────────────────────────────────────── */}
+      {mobileOpen ? (
+        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setMobileOpen(false)}
+            className="absolute inset-0 bg-black/40"
+          />
+          <aside className="absolute left-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl">
+            {sidebarContent}
+          </aside>
+        </div>
+      ) : null}
 
       {/* ── Main column ─────────────────────────────────────────────────── */}
       <div className="flex min-h-screen flex-col">
-        <TopBar user={user} onSignOut={signOut} />
-        <main className="flex-1 px-8 py-8">{children}</main>
+        <TopBar user={user} onSignOut={signOut} onOpenMenu={() => setMobileOpen(true)} />
+        <main className="flex-1 px-4 py-6 sm:px-6 md:px-8 md:py-8">{children}</main>
       </div>
       {user.scope === 'firm' ? <Toaster /> : null}
     </div>
   );
 }
 
-function TopBar({ user, onSignOut }: { user: ShellUser; onSignOut: () => void }) {
+function TopBar({
+  user,
+  onSignOut,
+  onOpenMenu,
+}: {
+  user: ShellUser;
+  onSignOut: () => void;
+  onOpenMenu: () => void;
+}) {
+  function openSupport(): void {
+    if (typeof window === 'undefined') return;
+    const subject = encodeURIComponent(`Support — ${window.location.pathname}`);
+    const body = encodeURIComponent(
+      `\n\n---\nPage: ${window.location.href}\nUser: ${user.email}`,
+    );
+    window.location.href = `mailto:support@onsective.com?subject=${subject}&body=${body}`;
+  }
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-surface)_85%,transparent)] px-6 backdrop-blur">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-surface)_85%,transparent)] px-3 backdrop-blur sm:px-6">
+      <button
+        type="button"
+        onClick={onOpenMenu}
+        aria-label="Open menu"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] md:hidden"
+      >
+        <Menu size={18} />
+      </button>
       <div className="relative w-full max-w-md">
         <Search
           size={14}
@@ -199,14 +260,23 @@ function TopBar({ user, onSignOut }: { user: ShellUser; onSignOut: () => void })
         <input
           type="search"
           placeholder="Search clients, cases, leads…"
-          className="h-9 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] pl-8 pr-12 text-sm placeholder:text-[var(--color-text-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus)]"
+          className="h-9 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] pl-8 pr-3 text-sm placeholder:text-[var(--color-text-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus)] sm:pr-12"
         />
-        <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-muted)]">
+        <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 hidden rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-muted)] sm:inline-block">
           ⌘K
         </kbd>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+        <button
+          type="button"
+          onClick={openSupport}
+          aria-label="Help"
+          title="Email support"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+        >
+          <HelpCircle size={16} />
+        </button>
         <button
           aria-label="Notifications"
           className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"

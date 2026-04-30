@@ -139,9 +139,13 @@ export default function CampaignsPage() {
 
           <Card>
             {items.length === 0 ? (
-              <div className="py-10 text-center text-sm text-[var(--color-text-muted)]">
+              <div className="py-10 text-center">
                 <Megaphone size={28} className="mx-auto mb-2 opacity-40" />
-                No campaigns yet.
+                <div className="text-sm font-medium">No campaigns yet</div>
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                  Campaigns batch-send SMS or email to a saved list of leads. Click{' '}
+                  <span className="font-medium">New campaign</span> to draft your first one.
+                </p>
               </div>
             ) : (
               <table className="w-full text-sm">

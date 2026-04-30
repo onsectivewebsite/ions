@@ -33,6 +33,7 @@ import { IrccLogCard } from '../../../components/cases/IrccLogCard';
 import { PortalAccessCard } from '../../../components/cases/PortalAccessCard';
 import { CaseAiCard } from '../../../components/cases/CaseAiCard';
 import { PdfFormFillCard } from '../../../components/cases/PdfFormFillCard';
+import { NotFoundPanel } from '../../../components/NotFoundPanel';
 import { BillingCard } from '../../../components/cases/BillingCard';
 import { MessagesCard } from '../../../components/cases/MessagesCard';
 import { AgentCard } from '../../../components/cases/AgentCard';
@@ -139,6 +140,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   const [users, setUsers] = useState<UserRow[]>([]);
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function refresh(): Promise<void> {
@@ -147,8 +149,14 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     try {
       const k = await rpcQuery<CaseRow>('cases.get', { id }, { token });
       setCase(k);
+      setLoadError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      const msg = err instanceof Error ? err.message : 'Failed to load';
+      if (/not.?found/i.test(msg)) {
+        setLoadError('not-found');
+      } else {
+        setError(msg);
+      }
     }
   }
 
@@ -196,10 +204,31 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     }
   }
 
+  if (loadError === 'not-found' && me) {
+    const branding = me.tenant?.branding ?? { themeCode: 'maple' as const };
+    const shellUser: ShellUser = {
+      name: me.name,
+      email: me.email,
+      scope: 'firm',
+      contextLabel: me.tenant.displayName,
+    };
+    return (
+      <ThemeProvider branding={branding}>
+        <AppShell user={shellUser}>
+          <NotFoundPanel
+            title="Case not found"
+            message="This case doesn't exist anymore — it may have been deleted, or the link is wrong."
+            backHref="/cases"
+            backLabel="Back to cases"
+          />
+        </AppShell>
+      </ThemeProvider>
+    );
+  }
   if (!me || !c) {
     return (
-      <main className="grid min-h-screen grid-cols-[240px_1fr]">
-        <div className="border-r border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+      <main className="grid min-h-screen md:grid-cols-[240px_1fr]">
+        <div className="hidden border-r border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:block">
           <Skeleton className="h-6 w-32" />
         </div>
         <div className="space-y-4 p-8">
