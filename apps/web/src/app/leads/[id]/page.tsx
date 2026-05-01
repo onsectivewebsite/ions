@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, use } from 'react';
+import { useEffect, useMemo, useState, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -1266,6 +1266,43 @@ function BookConsultDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Provider office hours (for out-of-hours warning).
+  type OfficeHours = Partial<
+    Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', [number, number] | null>
+  >;
+  const [providerHours, setProviderHours] = useState<OfficeHours | null>(null);
+  useEffect(() => {
+    if (!providerId) {
+      setProviderHours(null);
+      return;
+    }
+    const t = getAccessToken();
+    rpcQuery<OfficeHours | null>(
+      'user.getProviderOfficeHours',
+      { providerId },
+      { token: t },
+    )
+      .then(setProviderHours)
+      .catch(() => setProviderHours(null));
+  }, [providerId]);
+
+  const officeHoursWarning = useMemo(() => {
+    if (!providerHours || !date || !time) return null;
+    const at = new Date(`${date}T${time}:00`);
+    if (Number.isNaN(at.getTime())) return null;
+    const dayKeys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+    const key = dayKeys[at.getDay()]!;
+    const window = providerHours[key];
+    if (window === undefined) return null;
+    if (window === null) return `Provider marked off on ${key.toUpperCase()}.`;
+    const [open, close] = window;
+    const hour = at.getHours() + at.getMinutes() / 60;
+    if (hour < open || hour >= close) {
+      return `Outside provider's office hours (${open}:00–${close}:00 on ${key.toUpperCase()}).`;
+    }
+    return null;
+  }, [providerHours, date, time]);
+
   // Live conflict probe — re-fetch as provider/date/time/duration change.
   useEffect(() => {
     if (!providerId || !date || !time) {
@@ -1348,6 +1385,15 @@ function BookConsultDialog({
           </button>
         </div>
         <div className="space-y-4">
+          {officeHoursWarning ? (
+            <div className="rounded-[var(--radius-md)] border border-[var(--color-warning)]/40 bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-3 text-xs">
+              <div className="font-medium">{officeHoursWarning}</div>
+              <p className="mt-1 text-[var(--color-text-muted)]">
+                You can still book — this is a heads-up about the provider&rsquo;s set hours.
+              </p>
+            </div>
+          ) : null}
+
           {conflicts && conflicts.length > 0 ? (
             <div className="rounded-[var(--radius-md)] border border-[var(--color-warning)]/40 bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-3 text-xs">
               <div className="font-medium">

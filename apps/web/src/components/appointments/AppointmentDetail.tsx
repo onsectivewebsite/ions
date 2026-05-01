@@ -121,6 +121,40 @@ export function AppointmentDetail({
     }
   }
 
+  async function reschedule(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    const current = new Date(appt.scheduledAt);
+    const date = window.prompt(
+      'New date (YYYY-MM-DD):',
+      current.toISOString().slice(0, 10),
+    );
+    if (!date) return;
+    const time = window.prompt(
+      'New time (HH:MM, 24h):',
+      current.toTimeString().slice(0, 5),
+    );
+    if (!time) return;
+    const newAt = new Date(`${date}T${time}:00`);
+    if (Number.isNaN(newAt.getTime())) {
+      onError('Invalid date/time');
+      return;
+    }
+    setBusy(true);
+    try {
+      const t = getAccessToken();
+      await rpcMutation(
+        'appointment.update',
+        { id: appt.id, scheduledAt: newAt.toISOString() },
+        { token: t },
+      );
+      await onChanged();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Reschedule failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl">
@@ -208,6 +242,11 @@ export function AppointmentDetail({
                 {s}
               </Button>
             ))}
+            {(appt.status === 'SCHEDULED' || appt.status === 'CONFIRMED') ? (
+              <Button size="sm" variant="ghost" disabled={busy} onClick={reschedule}>
+                Reschedule
+              </Button>
+            ) : null}
             <Button size="sm" variant="danger" disabled={busy} onClick={cancel}>
               Cancel
             </Button>

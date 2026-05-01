@@ -16,6 +16,7 @@ import { dataPurgeTick } from './data-purge.js';
 import { auditPurgeTick } from './audit-purge.js';
 import { abuseAlertsTick } from './abuse-alerts.js';
 import { calendarSyncTick } from './calendar-sync.js';
+import { appointmentRemindersTick } from './appointment-reminders.js';
 
 const env = loadEnv();
 
@@ -86,6 +87,24 @@ export function startScheduledJobs(): void {
     });
     logger.info({ schedule: env.CRON_DATA_PURGE }, 'cron: data purge scheduled');
   }
+
+  // Stage 18.1 — every 5 min, scan upcoming appointments and send
+  // 24h + 1h reminder emails. Dedup via Redis keys per (apt, kind).
+  cron.schedule('*/5 * * * *', async () => {
+    const start = Date.now();
+    try {
+      const r = await appointmentRemindersTick();
+      if (r.sent > 0 || r.errors > 0) {
+        logger.info(
+          { ...r, ms: Date.now() - start },
+          `cron: appt reminders — scanned ${r.scanned}, sent ${r.sent}, errors ${r.errors}`,
+        );
+      }
+    } catch (e) {
+      logger.error({ err: e }, 'cron: appt reminders threw');
+    }
+  });
+  logger.info('cron: appointment reminders scheduled (every 5 min)');
 
   // Stage 16.2 — every 15 minutes, pull busy slots from connected
   // external calendars so the booking flow can warn about overlaps.

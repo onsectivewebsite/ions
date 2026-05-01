@@ -173,6 +173,10 @@ model User {
   twoFASecret     String?
   recoveryCodes   TwoFactorRecoveryCode[]
   notificationPrefs Json?
+  // { mon: [9, 17], tue: [9, 17], ..., sat: null } — null = off,
+  // [openHour, closeHour] in 24h local time. Booking dialog warns
+  // when scheduledAt falls outside.
+  officeHours     Json?
   branchId        String?    @db.Uuid
   branch          Branch?    @relation("BranchUsers", fields: [branchId], references: [id])
   managedBranches Branch[]   @relation("BranchManager")

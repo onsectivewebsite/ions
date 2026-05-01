@@ -76,6 +76,50 @@ function appointmentReadWhere(ctx: {
 
 export const appointmentRouter = router({
   /**
+   * Stage 18.2 — return external busy slots for the firm's providers
+   * over a window. Used by /appointments to render gray "busy" tiles
+   * alongside our own bookings.
+   */
+  externalBusy: requirePermission('appointments', 'read')
+    .input(
+      z.object({
+        from: z.string().datetime(),
+        to: z.string().datetime(),
+        providerId: z.string().uuid().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const conns = await ctx.prisma.calendarConnection.findMany({
+        where: {
+          status: 'active',
+          user: { tenantId: ctx.tenantId, deletedAt: null },
+          ...(input.providerId ? { userId: input.providerId } : {}),
+        },
+        select: { id: true, userId: true, provider: true },
+      });
+      if (conns.length === 0) return { items: [] };
+      const slots = await ctx.prisma.calendarBusySlot.findMany({
+        where: {
+          connectionId: { in: conns.map((c) => c.id) },
+          startsAt: { lt: new Date(input.to) },
+          endsAt: { gt: new Date(input.from) },
+        },
+        orderBy: { startsAt: 'asc' },
+      });
+      const byConn = new Map(conns.map((c) => [c.id, c]));
+      return {
+        items: slots.map((s) => ({
+          id: s.id,
+          summary: s.summary ?? '(no title)',
+          startsAt: s.startsAt.toISOString(),
+          endsAt: s.endsAt.toISOString(),
+          providerId: byConn.get(s.connectionId)?.userId ?? null,
+          source: byConn.get(s.connectionId)?.provider ?? 'external',
+        })),
+      };
+    }),
+
+  /**
    * Stage 16.2 — return external-calendar conflicts for a proposed
    * booking. Checks the provider's connected calendar busy slots;
    * pure read, no side effects. The booking dialog uses this to warn

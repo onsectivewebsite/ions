@@ -53,10 +53,20 @@ function fmtDate(d: Date): string {
   return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
+type ExternalBusy = {
+  id: string;
+  summary: string;
+  startsAt: string;
+  endsAt: string;
+  providerId: string | null;
+  source: string;
+};
+
 export default function AppointmentsPage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [items, setItems] = useState<Appointment[] | null>(null);
+  const [externalBusy, setExternalBusy] = useState<ExternalBusy[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerFilter, setProviderFilter] = useState<string>('');
   const [view, setView] = useState<'day' | 'week'>('week');
@@ -74,7 +84,7 @@ export default function AppointmentsPage() {
     const token = getAccessToken();
     if (!token) return;
     try {
-      const [m, list, users] = await Promise.all([
+      const [m, list, users, busy] = await Promise.all([
         rpcQuery<Me>('user.me', undefined, { token }),
         rpcQuery<Appointment[]>(
           'appointment.list',
@@ -86,6 +96,11 @@ export default function AppointmentsPage() {
           { page: 1 },
           { token },
         ).catch(() => ({ items: [], total: 0 }) as Paged<Provider & { branchId: string | null; status: string }>),
+        rpcQuery<{ items: ExternalBusy[] }>(
+          'appointment.externalBusy',
+          { ...range, providerId: providerFilter || undefined },
+          { token },
+        ).catch(() => ({ items: [] as ExternalBusy[] })),
       ]);
       if (m.kind !== 'firm') {
         router.replace('/dashboard');
@@ -94,6 +109,7 @@ export default function AppointmentsPage() {
       setMe(m);
       setItems(list);
       setProviders(users.items.filter((u) => u.status === 'ACTIVE'));
+      setExternalBusy(busy.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     }
@@ -222,12 +238,25 @@ export default function AppointmentsPage() {
               const list = (byDay.get(k) ?? []).sort(
                 (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime(),
               );
+              const dayStart = day.getTime();
+              const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+              const dayBusy = externalBusy
+                .filter((b) => {
+                  const s = new Date(b.startsAt).getTime();
+                  return s >= dayStart && s < dayEnd;
+                })
+                .sort(
+                  (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+                );
               return (
                 <Card key={k}>
                   <div className="flex items-baseline justify-between">
                     <CardTitle>{fmtDate(day)}</CardTitle>
                     <span className="text-xs text-[var(--color-text-muted)]">
                       {list.length} appointment{list.length === 1 ? '' : 's'}
+                      {dayBusy.length > 0
+                        ? ` · ${dayBusy.length} external`
+                        : ''}
                     </span>
                   </div>
                   {list.length === 0 ? (
@@ -289,6 +318,37 @@ export default function AppointmentsPage() {
                       })}
                     </ul>
                   )}
+                  {dayBusy.length > 0 ? (
+                    <div className="mt-4 border-t border-dashed border-[var(--color-border-muted)] pt-3">
+                      <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+                        External calendar (read-only)
+                      </div>
+                      <ul className="mt-2 space-y-1">
+                        {dayBusy.map((b) => (
+                          <li
+                            key={b.id}
+                            className="flex items-center gap-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]"
+                          >
+                            <span className="tabular-nums">
+                              {new Date(b.startsAt).toLocaleTimeString([], {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })}
+                              {' – '}
+                              {new Date(b.endsAt).toLocaleTimeString([], {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                            <span className="truncate flex-1">{b.summary}</span>
+                            <span className="text-[10px] uppercase tracking-wider opacity-60">
+                              {b.source}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </Card>
               );
             })}

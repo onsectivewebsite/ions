@@ -353,6 +353,52 @@ export const userRouter = router({
       return { ok: true };
     }),
 
+  /** Self: get office hours. */
+  getOfficeHours: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.session.scope !== 'firm') return null;
+    const u = await ctx.prisma.user.findUnique({
+      where: { id: ctx.session.sub },
+      select: { officeHours: true },
+    });
+    return u?.officeHours ?? null;
+  }),
+
+  /** Self: set office hours. */
+  updateOfficeHours: protectedProcedure
+    .input(
+      z.object({
+        mon: z.tuple([z.number().int().min(0).max(24), z.number().int().min(0).max(24)]).nullable(),
+        tue: z.tuple([z.number().int().min(0).max(24), z.number().int().min(0).max(24)]).nullable(),
+        wed: z.tuple([z.number().int().min(0).max(24), z.number().int().min(0).max(24)]).nullable(),
+        thu: z.tuple([z.number().int().min(0).max(24), z.number().int().min(0).max(24)]).nullable(),
+        fri: z.tuple([z.number().int().min(0).max(24), z.number().int().min(0).max(24)]).nullable(),
+        sat: z.tuple([z.number().int().min(0).max(24), z.number().int().min(0).max(24)]).nullable(),
+        sun: z.tuple([z.number().int().min(0).max(24), z.number().int().min(0).max(24)]).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.session.scope !== 'firm') {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Firm-only' });
+      }
+      await ctx.prisma.user.update({
+        where: { id: ctx.session.sub },
+        data: { officeHours: input },
+      });
+      return { ok: true };
+    }),
+
+  /** Anyone with appointments.write: peek a provider's hours so the
+   * booking dialog can warn out-of-hours. Returns null if not set. */
+  getProviderOfficeHours: requirePermission('appointments', 'write')
+    .input(z.object({ providerId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const u = await ctx.prisma.user.findFirst({
+        where: { id: input.providerId, tenantId: ctx.tenantId, deletedAt: null },
+        select: { officeHours: true },
+      });
+      return u?.officeHours ?? null;
+    }),
+
   update: requirePermission('users', 'write')
     .input(
       z.object({
