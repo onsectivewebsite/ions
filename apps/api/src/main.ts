@@ -38,6 +38,7 @@ import {
   publicIntakeGetHandler,
   publicIntakeSubmitHandler,
 } from './routes/public-intake.js';
+import { emailWebhookHandler } from './webhooks/email.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
 const env = loadEnv();
@@ -109,6 +110,15 @@ app.post(
   '/api/v1/intake/:token/submit',
   express.json({ limit: '256kb' }),
   publicIntakeSubmitHandler,
+);
+
+// Email-provider webhook (deliverability + bounce + complaint events).
+// Auth via shared secret in Authorization header. Body is JSON of varying
+// shapes — handler normalizes Postmark / SendGrid / Resend / SES.
+app.post(
+  '/api/v1/webhooks/email',
+  express.json({ limit: '512kb' }),
+  emailWebhookHandler,
 );
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

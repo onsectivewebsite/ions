@@ -2,9 +2,10 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { CreditCard, ExternalLink } from 'lucide-react';
+import { CreditCard, ExternalLink, RotateCcw } from 'lucide-react';
 import {
   Badge,
+  Button,
   Card,
   CardBody,
   CardTitle,
@@ -12,7 +13,7 @@ import {
   ThemeProvider,
   type Branding,
 } from '@onsecboad/ui';
-import { rpcQuery } from '../../lib/api';
+import { rpcMutation, rpcQuery } from '../../lib/api';
 import { getAccessToken } from '../../lib/session';
 import { AppShell, type ShellUser } from '../../components/AppShell';
 
@@ -188,6 +189,7 @@ export default function PlatformBillingPage() {
                     <th className="py-2 pr-4">Amount</th>
                     <th className="py-2 pr-4">Status</th>
                     <th className="py-2 pr-4">Stripe</th>
+                    <th className="py-2 pr-4"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -201,7 +203,7 @@ export default function PlatformBillingPage() {
                     ))
                   ) : overview.recentInvoices.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-10 text-center text-xs text-[var(--color-text-muted)]">
+                      <td colSpan={8} className="py-10 text-center text-xs text-[var(--color-text-muted)]">
                         No invoices recorded yet. Invoices sync from Stripe via webhook —
                         once a firm has a real subscription, rows land here.
                       </td>
@@ -248,6 +250,24 @@ export default function PlatformBillingPage() {
                             Open <ExternalLink size={10} />
                           </a>
                         </td>
+                        <td className="py-3 pr-4">
+                          {inv.status === 'PAID' ? (
+                            <RefundButton
+                              invoiceId={inv.id}
+                              amountCents={inv.amountCents}
+                              currency={inv.currency}
+                              onDone={() => {
+                                // Refresh the list.
+                                const t = getAccessToken();
+                                void rpcQuery<Overview>(
+                                  'platform.billing.overview',
+                                  undefined,
+                                  { token: t },
+                                ).then(setOverview);
+                              }}
+                            />
+                          ) : null}
+                        </td>
                       </tr>
                     ))
                   )}
@@ -267,5 +287,71 @@ function Tile({ label, value }: { label: string; value: string }) {
       <div className="text-xs text-[var(--color-text-muted)]">{label}</div>
       <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
     </Card>
+  );
+}
+
+function RefundButton({
+  invoiceId,
+  amountCents,
+  currency,
+  onDone,
+}: {
+  invoiceId: string;
+  amountCents: number;
+  currency: string;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function refund(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    const fmt = new Intl.NumberFormat('en-CA', { style: 'currency', currency }).format(
+      amountCents / 100,
+    );
+    const fullStr = window.prompt(
+      `Full refund of ${fmt}? Type FULL for full, or a dollar amount (e.g. 25.00) for partial.`,
+      'FULL',
+    );
+    if (!fullStr) return;
+    let amount: number | undefined;
+    if (fullStr.trim().toUpperCase() === 'FULL') {
+      amount = undefined;
+    } else {
+      const n = Number(fullStr);
+      if (!Number.isFinite(n) || n <= 0) {
+        alert('Bad amount.');
+        return;
+      }
+      amount = Math.round(n * 100);
+    }
+    const reason = window.prompt(
+      'Reason (logged + sent to Stripe):',
+      'Customer requested refund',
+    );
+    if (!reason) return;
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      await rpcMutation(
+        'platform.billing.refundInvoice',
+        {
+          invoiceId,
+          amountCents: amount,
+          reason: 'requested_by_customer',
+          note: reason,
+        },
+        { token },
+      );
+      onDone();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Refund failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Button size="sm" variant="ghost" disabled={busy} onClick={refund}>
+      <RotateCcw size={12} />
+      {busy ? 'Refunding…' : 'Refund'}
+    </Button>
   );
 }

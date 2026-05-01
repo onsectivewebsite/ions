@@ -96,6 +96,11 @@ const envSchema = z.object({
 
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
+
+  // Stage 14.1 — shared secret used by /api/v1/webhooks/email to
+  // authenticate provider callbacks (Postmark/SendGrid/Resend/SES).
+  // Configure the same value at the provider's webhook target.
+  EMAIL_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

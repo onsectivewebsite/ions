@@ -304,6 +304,60 @@ export async function retrievePaymentIntent(piId: string): Promise<PaymentIntent
   };
 }
 
+/**
+ * Refund a paid subscription invoice. Looks up the invoice's
+ * payment_intent / charge and creates a refund against it. Amount is
+ * optional — omit for a full refund.
+ *
+ * Returns the refund id + status. In dry-run we pretend it succeeded.
+ */
+export type RefundInvoiceInput = {
+  invoiceId: string;
+  amountCents?: number;
+  reason?: 'duplicate' | 'fraudulent' | 'requested_by_customer';
+};
+
+export type RefundInvoiceResult = {
+  refundId: string;
+  status: string;
+  amountCents: number;
+  mode: StripeMode;
+};
+
+export async function refundInvoice(
+  input: RefundInvoiceInput,
+): Promise<RefundInvoiceResult> {
+  if (stripeMode === 'dry-run') {
+    log('invoice.refund', input);
+    return {
+      refundId: 're_dryrun_' + Math.random().toString(36).slice(2, 10),
+      status: 'succeeded',
+      amountCents: input.amountCents ?? 0,
+      mode: 'dry-run',
+    };
+  }
+  const inv = await realClient!.invoices.retrieve(input.invoiceId, {
+    expand: ['payment_intent'],
+  });
+  const pi = inv.payment_intent as { id?: string } | string | null | undefined;
+  const piId = typeof pi === 'string' ? pi : (pi?.id ?? null);
+  if (!piId) {
+    throw new Error('Invoice has no payment_intent — only paid invoices can be refunded.');
+  }
+  const refund = await realClient!.refunds.create({
+    payment_intent: piId,
+    amount: input.amountCents,
+    reason: input.reason,
+    metadata: { invoiceId: inv.id },
+  });
+  return {
+    refundId: refund.id,
+    status: refund.status ?? 'pending',
+    amountCents: refund.amount,
+    mode: 'real',
+  };
+}
+
 // ─── Webhook signature verification ───────────────────────────────────────
 
 export function verifyWebhookSignature(

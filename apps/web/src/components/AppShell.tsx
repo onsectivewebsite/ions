@@ -77,7 +77,9 @@ const PLATFORM_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: Home },
   { href: '/p/firms', label: 'Law firms', icon: Building2 },
   { href: '/billing', label: 'Billing', icon: CreditCard },
-  { href: '/audit', label: 'Audit log', icon: Shield },
+  { href: '/admin/email', label: 'Email', icon: Megaphone },
+  { href: '/admin/abuse', label: 'Abuse', icon: Shield },
+  { href: '/audit', label: 'Audit log', icon: History },
   { href: '/admin/backups', label: 'Backups', icon: Building },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];

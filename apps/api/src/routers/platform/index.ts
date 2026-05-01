@@ -132,6 +132,163 @@ export const platformRouter = router({
   }),
 
   /**
+   * Email deliverability metrics. Returns counts + rates over the last N
+   * days, both cross-firm and per-firm (top 10 by volume). Pulls from
+   * the EmailLog rows that the webhook updates.
+   */
+  email: router({
+    metrics: platformProcedure
+      .input(z.object({ days: z.number().int().min(1).max(90).default(30) }))
+      .query(async ({ ctx, input }) => {
+        const since = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000);
+        const [byStatus, perTenant, total] = await Promise.all([
+          ctx.prisma.emailLog.groupBy({
+            by: ['status'],
+            where: { createdAt: { gte: since } },
+            _count: { _all: true },
+          }),
+          ctx.prisma.emailLog.groupBy({
+            by: ['tenantId'],
+            where: { createdAt: { gte: since } },
+            _count: { _all: true },
+            orderBy: { _count: { tenantId: 'desc' } },
+            take: 10,
+          }),
+          ctx.prisma.emailLog.count({ where: { createdAt: { gte: since } } }),
+        ]);
+
+        const tenantIds = perTenant.map((t) => t.tenantId);
+        const tenants = await ctx.prisma.tenant.findMany({
+          where: { id: { in: tenantIds } },
+          select: { id: true, displayName: true, slug: true },
+        });
+        const tenantMap = new Map(tenants.map((t) => [t.id, t]));
+
+        const perTenantStatus = await ctx.prisma.emailLog.groupBy({
+          by: ['tenantId', 'status'],
+          where: {
+            createdAt: { gte: since },
+            tenantId: { in: tenantIds },
+          },
+          _count: { _all: true },
+        });
+        const perTenantBuckets = new Map<string, Record<string, number>>();
+        for (const r of perTenantStatus) {
+          const m = perTenantBuckets.get(r.tenantId) ?? {};
+          m[r.status] = r._count._all;
+          perTenantBuckets.set(r.tenantId, m);
+        }
+
+        return {
+          days: input.days,
+          totalSent: total,
+          byStatus: byStatus.map((g) => ({ status: g.status, count: g._count._all })),
+          perTenant: perTenant.map((t) => {
+            const tenant = tenantMap.get(t.tenantId);
+            const buckets = perTenantBuckets.get(t.tenantId) ?? {};
+            const sent = t._count._all;
+            const delivered =
+              (buckets.delivered ?? 0) + (buckets.opened ?? 0) + (buckets.clicked ?? 0);
+            const bounced = buckets.bounced ?? 0;
+            const complained = buckets.complained ?? 0;
+            return {
+              tenantId: t.tenantId,
+              tenantName: tenant?.displayName ?? '—',
+              sent,
+              delivered,
+              bounced,
+              complained,
+              bounceRate: sent === 0 ? 0 : bounced / sent,
+              complaintRate: sent === 0 ? 0 : complained / sent,
+            };
+          }),
+        };
+      }),
+  }),
+
+  /**
+   * Cross-firm abuse signals. Top-10 firms by failed logins (24h), SMS
+   * volume (7d), AI cost (7d), and suppression-list growth (7d). Helps
+   * spot bad actors before they impact others.
+   */
+  abuse: router({
+    signals: platformProcedure.query(async ({ ctx }) => {
+      const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const last7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      const [failedLogins, smsVolume, aiCost, suppressionGrowth] = await Promise.all([
+        ctx.prisma.auditLog.groupBy({
+          by: ['tenantId'],
+          where: {
+            createdAt: { gte: last24h },
+            action: { contains: 'signIn.fail' },
+            tenantId: { not: null },
+          },
+          _count: { _all: true },
+          orderBy: { _count: { tenantId: 'desc' } },
+          take: 10,
+        }),
+        ctx.prisma.smsLog.groupBy({
+          by: ['tenantId'],
+          where: { createdAt: { gte: last7d } },
+          _count: { _all: true },
+          orderBy: { _count: { tenantId: 'desc' } },
+          take: 10,
+        }),
+        ctx.prisma.aiUsage.groupBy({
+          by: ['tenantId'],
+          where: { createdAt: { gte: last7d } },
+          _sum: { costCents: true },
+          orderBy: { _sum: { costCents: 'desc' } },
+          take: 10,
+        }),
+        ctx.prisma.suppressionEntry.groupBy({
+          by: ['tenantId'],
+          where: { createdAt: { gte: last7d } },
+          _count: { _all: true },
+          orderBy: { _count: { tenantId: 'desc' } },
+          take: 10,
+        }),
+      ]);
+
+      const allTenantIds = new Set<string>();
+      [failedLogins, smsVolume, aiCost, suppressionGrowth].forEach((arr) => {
+        for (const r of arr) {
+          if (r.tenantId) allTenantIds.add(r.tenantId);
+        }
+      });
+      const tenants = await ctx.prisma.tenant.findMany({
+        where: { id: { in: Array.from(allTenantIds) } },
+        select: { id: true, displayName: true },
+      });
+      const nameOf = new Map(tenants.map((t) => [t.id, t.displayName]));
+
+      return {
+        failedLogins: failedLogins.map((r) => ({
+          tenantId: r.tenantId!,
+          tenantName: nameOf.get(r.tenantId!) ?? '—',
+          count: r._count._all,
+        })),
+        smsVolume: smsVolume.map((r) => ({
+          tenantId: r.tenantId,
+          tenantName: nameOf.get(r.tenantId) ?? '—',
+          count: r._count._all,
+        })),
+        aiCost: aiCost.map((r) => ({
+          tenantId: r.tenantId,
+          tenantName: nameOf.get(r.tenantId) ?? '—',
+          costCents: Number(r._sum.costCents ?? 0),
+        })),
+        suppressionGrowth: suppressionGrowth.map((r) => ({
+          tenantId: r.tenantId,
+          tenantName: nameOf.get(r.tenantId) ?? '—',
+          count: r._count._all,
+        })),
+      };
+    }),
+  }),
+
+  /**
    * Backup status (read-only). Lists objects in R2 under the backup
    * prefix. Backups are created by infra/scripts/pg_backup.sh on the
    * host (cron) and uploaded via rclone — this endpoint is purely for
@@ -170,8 +327,71 @@ export const platformRouter = router({
     }),
   }),
 
-  /** Cross-firm billing queries. */
+  /** Cross-firm billing queries + ops (refunds). */
   billing: router({
+    /**
+     * Issue a refund against a paid SubscriptionInvoice. Calls Stripe
+     * (or dry-runs) and marks the local row VOID so the platform
+     * billing page reflects it. Audit-logged.
+     */
+    refundInvoice: platformProcedure
+      .input(
+        z.object({
+          invoiceId: z.string().uuid(),
+          amountCents: z.number().int().min(1).max(1_000_000_00).optional(),
+          reason: z.enum(['duplicate', 'fraudulent', 'requested_by_customer']).optional(),
+          note: z.string().min(2).max(500),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const inv = await ctx.prisma.subscriptionInvoice.findUnique({
+          where: { id: input.invoiceId },
+        });
+        if (!inv) throw new TRPCError({ code: 'NOT_FOUND' });
+        if (inv.status !== 'PAID') {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Cannot refund an invoice in status ${inv.status}.`,
+          });
+        }
+        const { refundInvoice: stripeRefund } = await import('@onsecboad/stripe');
+        const result = await stripeRefund({
+          invoiceId: inv.stripeInvoiceId,
+          amountCents: input.amountCents,
+          reason: input.reason,
+        });
+        await ctx.prisma.subscriptionInvoice.update({
+          where: { id: inv.id },
+          data: { status: 'VOID' },
+        });
+        await ctx.prisma.auditLog.create({
+          data: {
+            tenantId: inv.tenantId,
+            actorId: ctx.session.sub,
+            actorType: 'PLATFORM',
+            action: 'platform.invoice.refund',
+            targetType: 'SubscriptionInvoice',
+            targetId: inv.id,
+            payload: {
+              stripeInvoiceId: inv.stripeInvoiceId,
+              refundId: result.refundId,
+              amountCents: result.amountCents,
+              reason: input.reason ?? null,
+              note: input.note,
+              fullRefund: input.amountCents === undefined,
+            },
+            ip: ctx.ip,
+            userAgent: ctx.userAgent ?? null,
+          },
+        });
+        return {
+          ok: true,
+          refundId: result.refundId,
+          status: result.status,
+          amountCents: result.amountCents,
+        };
+      }),
+
     overview: platformProcedure.query(async ({ ctx }) => {
       const [recentInvoices, totalsByStatus] = await Promise.all([
         ctx.prisma.subscriptionInvoice.findMany({

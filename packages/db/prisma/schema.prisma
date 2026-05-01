@@ -479,11 +479,22 @@ model EmailLog {
   subject         String
   body            String
   templateKey     String?
-  status          String     // 'sent' | 'failed' | 'opened' | 'clicked'
-  providerId      String?    @unique // SES/Resend message id
+  // 'sent' | 'failed' | 'delivered' | 'bounced' | 'complained' | 'opened' | 'clicked'
+  status          String
+  providerId      String?    @unique // SES/Resend/Postmark message id
+  // Deliverability tracking — populated by /api/v1/webhooks/email when
+  // the SMTP provider (Postmark/SendGrid/Resend/SES) calls back.
+  deliveredAt     DateTime?
+  bouncedAt       DateTime?
+  bounceType      String?    // 'hard' | 'soft' | 'undetermined'
+  bounceReason    String?
+  complainedAt    DateTime?
+  openedAt        DateTime?
+  clickedAt       DateTime?
   createdAt       DateTime   @default(now())
 
   @@index([tenantId, leadId, createdAt])
+  @@index([tenantId, status, createdAt])
 }
 
 model Campaign {
