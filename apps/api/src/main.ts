@@ -47,6 +47,10 @@ import {
   googleConnectHandler,
   googleCallbackHandler,
 } from './routes/calendar-google.js';
+import {
+  outlookConnectHandler,
+  outlookCallbackHandler,
+} from './routes/calendar-outlook.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
 const env = loadEnv();
@@ -128,6 +132,8 @@ app.get('/api/v1/email/click/:id', emailClickHandler);
 // redirect dance and can't set Authorization headers.
 app.get('/api/v1/calendar/google/connect', googleConnectHandler);
 app.get('/api/v1/calendar/google/callback', googleCallbackHandler);
+app.get('/api/v1/calendar/outlook/connect', outlookConnectHandler);
+app.get('/api/v1/calendar/outlook/callback', outlookCallbackHandler);
 
 // Email-provider webhook (deliverability + bounce + complaint events).
 // Auth via shared secret in Authorization header. Body is JSON of varying

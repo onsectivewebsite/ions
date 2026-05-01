@@ -75,6 +75,55 @@ function appointmentReadWhere(ctx: {
 }
 
 export const appointmentRouter = router({
+  /**
+   * Stage 16.2 — return external-calendar conflicts for a proposed
+   * booking. Checks the provider's connected calendar busy slots;
+   * pure read, no side effects. The booking dialog uses this to warn
+   * before submit.
+   */
+  checkConflicts: requirePermission('appointments', 'write')
+    .input(
+      z.object({
+        providerId: z.string().uuid(),
+        scheduledAt: z.string().datetime(),
+        durationMin: z.number().int().min(5).max(8 * 60),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const start = new Date(input.scheduledAt);
+      const end = new Date(start.getTime() + input.durationMin * 60 * 1000);
+      const conns = await ctx.prisma.calendarConnection.findMany({
+        where: { userId: input.providerId, status: 'active' },
+        select: { id: true },
+      });
+      if (conns.length === 0) return { conflicts: [] };
+      const slots = await ctx.prisma.calendarBusySlot.findMany({
+        where: {
+          connectionId: { in: conns.map((c) => c.id) },
+          startsAt: { lt: end },
+          endsAt: { gt: start },
+        },
+        orderBy: { startsAt: 'asc' },
+        select: {
+          id: true,
+          summary: true,
+          startsAt: true,
+          endsAt: true,
+          connection: { select: { provider: true, externalAccount: true } },
+        },
+      });
+      return {
+        conflicts: slots.map((s) => ({
+          id: s.id,
+          summary: s.summary ?? '(no title)',
+          startsAt: s.startsAt.toISOString(),
+          endsAt: s.endsAt.toISOString(),
+          provider: s.connection.provider,
+          externalAccount: s.connection.externalAccount,
+        })),
+      };
+    }),
+
   list: requirePermission('appointments', 'read')
     .input(
       z
@@ -299,18 +348,25 @@ export const appointmentRouter = router({
         });
       })();
 
-      // Stage 15.5 — push to provider's connected Google Calendar.
+      // Stage 15.5 + 16.1 — push to provider's connected Google + Outlook calendars.
       void (async () => {
-        const { pushAppointmentToGoogle } = await import('../lib/google-calendar.js');
         const start = appt.scheduledAt;
         const end = new Date(start.getTime() + (appt.durationMin ?? 30) * 60 * 1000);
-        await pushAppointmentToGoogle(input.providerId, {
+        const payload = {
           appointmentId: appt.id,
           summary: `${appt.kind === 'consultation' ? 'Consultation' : appt.kind} — OnsecBoad`,
           description: input.notes ?? undefined,
           startISO: start.toISOString(),
           endISO: end.toISOString(),
-        });
+        };
+        const [{ pushAppointmentToGoogle }, { pushAppointmentToOutlook }] = await Promise.all([
+          import('../lib/google-calendar.js'),
+          import('../lib/outlook-calendar.js'),
+        ]);
+        await Promise.all([
+          pushAppointmentToGoogle(input.providerId, payload),
+          pushAppointmentToOutlook(input.providerId, payload),
+        ]);
       })();
 
       return appt;

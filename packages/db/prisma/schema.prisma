@@ -252,6 +252,23 @@ model TwoFactorRecoveryCode {
   @@index([userId, usedAt])
 }
 
+// External calendar busy slot — events fetched from connected calendars
+// (Google, Outlook). Used by the booking flow to warn about double-bookings
+// without blocking — lawyers sometimes intentionally overlap.
+model CalendarBusySlot {
+  id                 String   @id @default(uuid()) @db.Uuid
+  connectionId       String   @db.Uuid
+  connection         CalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  externalEventId    String
+  summary            String?
+  startsAt           DateTime
+  endsAt             DateTime
+  fetchedAt          DateTime @default(now())
+
+  @@unique([connectionId, externalEventId])
+  @@index([connectionId, startsAt, endsAt])
+}
+
 // External calendar OAuth connection (Google, Outlook). Per-user. Tokens
 // are AES-encrypted at rest with the column-encryption key. When a user
 // creates an Appointment, a fire-and-forget push is attempted to every
@@ -272,6 +289,8 @@ model CalendarConnection {
   lastError       String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  busySlots       CalendarBusySlot[]
 
   @@unique([userId, provider, externalAccount])
   @@index([userId, status])

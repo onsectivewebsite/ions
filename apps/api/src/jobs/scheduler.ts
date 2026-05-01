@@ -15,6 +15,7 @@ import { aiAgentTick } from './ai-agent-tick.js';
 import { dataPurgeTick } from './data-purge.js';
 import { auditPurgeTick } from './audit-purge.js';
 import { abuseAlertsTick } from './abuse-alerts.js';
+import { calendarSyncTick } from './calendar-sync.js';
 
 const env = loadEnv();
 
@@ -85,6 +86,22 @@ export function startScheduledJobs(): void {
     });
     logger.info({ schedule: env.CRON_DATA_PURGE }, 'cron: data purge scheduled');
   }
+
+  // Stage 16.2 — every 15 minutes, pull busy slots from connected
+  // external calendars so the booking flow can warn about overlaps.
+  cron.schedule('*/15 * * * *', async () => {
+    const start = Date.now();
+    try {
+      const r = await calendarSyncTick();
+      logger.info(
+        { ...r, ms: Date.now() - start },
+        `cron: calendar sync done — connections ${r.connections}, slots ${r.slotsUpserted}, errors ${r.errors}`,
+      );
+    } catch (e) {
+      logger.error({ err: e }, 'cron: calendar sync threw');
+    }
+  });
+  logger.info('cron: calendar sync scheduled (every 15 min)');
 
   // Stage 15.2 — hourly abuse-signal alerts to Onsective ops.
   if (cron.validate(env.CRON_ABUSE_ALERTS)) {

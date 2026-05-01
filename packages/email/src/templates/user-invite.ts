@@ -1,4 +1,4 @@
-import { sendEmail, type SendEmailResult } from '../send';
+import { sendEmail, type SendEmailInput, type SendEmailResult } from '../send';
 import { htmlShell, buttonHtml, escapeHtml, type EmailBrand } from './base';
 
 export type SendUserInviteInput = {
@@ -12,7 +12,7 @@ export type SendUserInviteInput = {
   brand?: EmailBrand;
 };
 
-export async function sendUserInviteEmail(input: SendUserInviteInput): Promise<SendEmailResult> {
+export function buildUserInviteEmail(input: SendUserInviteInput): SendEmailInput {
   const ttl = input.ttlDays ?? 7;
   const productName = input.brand?.productName ?? 'OnsecBoad';
   const body = `
@@ -38,11 +38,17 @@ export async function sendUserInviteEmail(input: SendUserInviteInput): Promise<S
     `${input.inviterName} invited you to ${input.firmName} on ${productName} as ${input.roleName}.\n\n` +
     `Accept here: ${input.inviteUrl}\n\n` +
     `Expires in ${ttl} day${ttl === 1 ? '' : 's'}.\n`;
-  return sendEmail({
+  return {
     to: input.to,
     subject: `${input.inviterName} invited you to ${input.firmName} on ${productName}`,
     html: htmlShell(body, input.brand),
     text,
     headers: { 'X-Entity-Ref-ID': 'user-invite' },
-  });
+  };
+}
+
+export async function sendUserInviteEmail(
+  input: SendUserInviteInput,
+): Promise<SendEmailResult> {
+  return sendEmail(buildUserInviteEmail(input));
 }

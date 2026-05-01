@@ -320,12 +320,12 @@ function CalendarCard() {
     }
   }
 
-  function connectGoogle(): void {
+  function connect(provider: 'google' | 'outlook'): void {
     if (typeof window === 'undefined') return;
     const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
     const token = getAccessToken();
     if (!token) return;
-    window.location.href = `${apiBase}/api/v1/calendar/google/connect?token=${encodeURIComponent(token)}`;
+    window.location.href = `${apiBase}/api/v1/calendar/${provider}/connect?token=${encodeURIComponent(token)}`;
   }
 
   if (!data) return null;
@@ -383,13 +383,24 @@ function CalendarCard() {
         )}
       </div>
 
-      {data.configured ? (
-        <div className="mt-4">
-          <Button onClick={connectGoogle} size="sm" variant="secondary">
-            Connect Google Calendar
-          </Button>
-        </div>
-      ) : null}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button
+          onClick={() => connect('google')}
+          size="sm"
+          variant="secondary"
+          disabled={!data.configured}
+          title={!data.configured ? 'Google OAuth not configured' : undefined}
+        >
+          Connect Google
+        </Button>
+        <Button
+          onClick={() => connect('outlook')}
+          size="sm"
+          variant="secondary"
+        >
+          Connect Outlook
+        </Button>
+      </div>
     </Card>
   );
 }

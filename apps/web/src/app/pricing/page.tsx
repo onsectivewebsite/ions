@@ -1,7 +1,9 @@
+'use client';
 import Link from 'next/link';
 import { ArrowRight, Check, X } from 'lucide-react';
 import { Button } from '@onsecboad/ui';
 import { Logo } from '../../components/Logo';
+import { LocaleSwitcher, useT } from '../../i18n';
 
 type Tier = {
   code: string;
@@ -70,6 +72,7 @@ const TIERS: Tier[] = [
 ];
 
 export default function PricingPage() {
+  const { t } = useT();
   return (
     <main className="min-h-screen bg-mesh">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
@@ -77,14 +80,15 @@ export default function PricingPage() {
           <Logo />
         </Link>
         <div className="flex items-center gap-2">
+          <LocaleSwitcher className="hidden sm:inline-flex" />
           <Link href="/sign-in" className="hidden sm:block">
             <Button size="sm" variant="ghost">
-              Sign in
+              {t('nav.signIn')}
             </Button>
           </Link>
           <Link href="/sign-up">
             <Button size="sm">
-              Start free trial
+              {t('nav.startTrial')}
               <ArrowRight size={14} />
             </Button>
           </Link>
@@ -93,11 +97,10 @@ export default function PricingPage() {
 
       <section className="mx-auto max-w-3xl px-6 pb-12 pt-12 text-center sm:pt-16">
         <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
-          Simple, per-seat pricing
+          {t('pricing.title')}
         </h1>
         <p className="mx-auto mt-3 max-w-xl text-sm text-[var(--color-text-muted)] sm:text-base">
-          14-day free trial on every plan. No credit card to start. Switch tiers anytime —
-          you only pay for active users.
+          {t('pricing.subhead')}
         </p>
       </section>
 
@@ -108,7 +111,7 @@ export default function PricingPage() {
       </section>
 
       <section className="mx-auto max-w-3xl px-6 pb-24 text-center">
-        <h2 className="text-xl font-semibold tracking-tight">Common questions</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{t('pricing.faq.title')}</h2>
         <div className="mt-6 grid gap-4 text-left sm:grid-cols-2">
           <Faq
             q="What's a 'seat'?"
@@ -138,20 +141,18 @@ export default function PricingPage() {
       </section>
 
       <section className="mx-auto max-w-3xl px-6 pb-24 text-center">
-        <h2 className="text-2xl font-semibold tracking-tight">Still deciding?</h2>
-        <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-          The trial is 14 days, no card required. We&rsquo;ll set you up in under five minutes.
-        </p>
+        <h2 className="text-2xl font-semibold tracking-tight">{t('pricing.cta.title')}</h2>
+        <p className="mt-2 text-sm text-[var(--color-text-muted)]">{t('pricing.cta.body')}</p>
         <div className="mt-6 flex justify-center gap-3">
           <Link href="/sign-up">
             <Button size="lg">
-              Start free trial
+              {t('pricing.cta.btn')}
               <ArrowRight size={16} />
             </Button>
           </Link>
           <a href="mailto:sales@onsective.com">
             <Button size="lg" variant="secondary">
-              Talk to sales
+              {t('pricing.cta.contact')}
             </Button>
           </a>
         </div>

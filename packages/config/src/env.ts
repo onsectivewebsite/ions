@@ -115,6 +115,14 @@ const envSchema = z.object({
   // No values configured = the connect button shows "Not configured".
   GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+
+  // Stage 16.1 — Microsoft (Outlook / Microsoft 365) OAuth via Microsoft
+  // Graph. Register the app in Azure AD; authorized redirect URI:
+  //   <API_URL>/api/v1/calendar/outlook/callback
+  // Required Graph API permissions: User.Read, Calendars.ReadWrite,
+  // offline_access (for refresh tokens).
+  MS_OAUTH_CLIENT_ID: z.string().optional(),
+  MS_OAUTH_CLIENT_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { randomBytes, createHash } from 'node:crypto';
 import { Prisma } from '@onsecboad/db';
-import { sendUserInviteEmail } from '@onsecboad/email';
+import { buildUserInviteEmail } from '@onsecboad/email';
 import { tenantEmailBrand } from '../lib/email-brand.js';
+import { sendTrackedEmail } from '../lib/track-email.js';
 import { loadEnv } from '@onsecboad/config';
 import { router, protectedProcedure, firmProcedure } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
@@ -196,7 +197,7 @@ export const userRouter = router({
       let emailSent = false;
       let emailError: string | undefined;
       try {
-        const result = await sendUserInviteEmail({
+        const built = buildUserInviteEmail({
           to: input.email,
           recipientName: input.name,
           firmName: inviter.tenant.displayName,
@@ -205,6 +206,11 @@ export const userRouter = router({
           inviteUrl,
           ttlDays: INVITE_TTL_DAYS,
           brand: tenantEmailBrand(inviter.tenant),
+        });
+        const result = await sendTrackedEmail({
+          ...built,
+          tenantId: ctx.tenantId,
+          templateKey: 'user-invite',
         });
         emailSent = result.ok;
         if (!result.ok) {
@@ -274,7 +280,7 @@ export const userRouter = router({
       let emailSent = false;
       let emailError: string | undefined;
       try {
-        const result = await sendUserInviteEmail({
+        const built = buildUserInviteEmail({
           to: u.email,
           recipientName: u.name,
           firmName: inviter.tenant.displayName,
@@ -283,6 +289,11 @@ export const userRouter = router({
           inviteUrl,
           ttlDays: INVITE_TTL_DAYS,
           brand: tenantEmailBrand(inviter.tenant),
+        });
+        const result = await sendTrackedEmail({
+          ...built,
+          tenantId: ctx.tenantId,
+          templateKey: 'user-invite-resend',
         });
         emailSent = result.ok;
         if (!result.ok) emailError = result.error ?? 'unknown';
