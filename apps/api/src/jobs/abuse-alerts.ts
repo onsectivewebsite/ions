@@ -65,10 +65,16 @@ export async function abuseAlertsTick(): Promise<{
     }),
     prisma.suppressionEntry.groupBy({
       by: ['tenantId'],
-      where: { createdAt: { gte: last7d } },
+      where: { addedAt: { gte: last7d } },
       _count: { _all: true },
     }),
   ]);
+
+  // Prisma's _count return type widens awkwardly for groupBy results; the
+  // groupBy variant types `_count` as `true | {...}`. We always pass an
+  // object so the runtime shape is `{ _all: number }` — coerce explicitly.
+  const cAll = (r: { _count?: unknown }): number =>
+    (r._count as { _all?: number } | undefined)?._all ?? 0;
 
   const tenantIds = new Set<string>();
   failedLogins.forEach((r) => r.tenantId && tenantIds.add(r.tenantId));
@@ -85,24 +91,24 @@ export async function abuseAlertsTick(): Promise<{
 
   const alerts: Alert[] = [];
   for (const r of failedLogins) {
-    if (r.tenantId && r._count._all > THRESHOLDS.failedLogins) {
+    if (r.tenantId && cAll(r) > THRESHOLDS.failedLogins) {
       alerts.push({
         tenantId: r.tenantId,
         tenantName: nameOf.get(r.tenantId) ?? r.tenantId,
         signal: 'failedLogins',
-        value: r._count._all,
+        value: cAll(r),
         threshold: THRESHOLDS.failedLogins,
         unit: 'failed logins in 24h',
       });
     }
   }
   for (const r of smsVolume) {
-    if (r._count._all > THRESHOLDS.smsVolume) {
+    if (cAll(r) > THRESHOLDS.smsVolume) {
       alerts.push({
         tenantId: r.tenantId,
         tenantName: nameOf.get(r.tenantId) ?? r.tenantId,
         signal: 'smsVolume',
-        value: r._count._all,
+        value: cAll(r),
         threshold: THRESHOLDS.smsVolume,
         unit: 'SMS in 7d',
       });
@@ -122,12 +128,12 @@ export async function abuseAlertsTick(): Promise<{
     }
   }
   for (const r of suppressionGrowth) {
-    if (r._count._all > THRESHOLDS.suppressionGrowth) {
+    if (cAll(r) > THRESHOLDS.suppressionGrowth) {
       alerts.push({
         tenantId: r.tenantId,
         tenantName: nameOf.get(r.tenantId) ?? r.tenantId,
         signal: 'suppressionGrowth',
-        value: r._count._all,
+        value: cAll(r),
         threshold: THRESHOLDS.suppressionGrowth,
         unit: 'suppressions in 7d',
       });

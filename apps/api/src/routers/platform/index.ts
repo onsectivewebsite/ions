@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { router, platformProcedure } from '../../trpc.js';
 import { tenantPlatformRouter } from './tenant.js';
@@ -175,7 +176,7 @@ export const platformRouter = router({
         const perTenantBuckets = new Map<string, Record<string, number>>();
         for (const r of perTenantStatus) {
           const m = perTenantBuckets.get(r.tenantId) ?? {};
-          m[r.status] = r._count._all;
+          m[r.status] = cAll(r);
           perTenantBuckets.set(r.tenantId, m);
         }
 
@@ -244,12 +245,17 @@ export const platformRouter = router({
         }),
         ctx.prisma.suppressionEntry.groupBy({
           by: ['tenantId'],
-          where: { createdAt: { gte: last7d } },
+          where: { addedAt: { gte: last7d } },
           _count: { _all: true },
           orderBy: { _count: { tenantId: 'desc' } },
           take: 10,
         }),
       ]);
+
+      // See abuse-alerts.ts: groupBy widens `_count` awkwardly. Coerce
+      // to the runtime shape `{ _all: number }`.
+      const cAll = (r: { _count?: unknown }): number =>
+        (r._count as { _all?: number } | undefined)?._all ?? 0;
 
       const allTenantIds = new Set<string>();
       [failedLogins, smsVolume, aiCost, suppressionGrowth].forEach((arr) => {
@@ -267,12 +273,12 @@ export const platformRouter = router({
         failedLogins: failedLogins.map((r) => ({
           tenantId: r.tenantId!,
           tenantName: nameOf.get(r.tenantId!) ?? '—',
-          count: r._count._all,
+          count: cAll(r),
         })),
         smsVolume: smsVolume.map((r) => ({
           tenantId: r.tenantId,
           tenantName: nameOf.get(r.tenantId) ?? '—',
-          count: r._count._all,
+          count: cAll(r),
         })),
         aiCost: aiCost.map((r) => ({
           tenantId: r.tenantId,
@@ -282,7 +288,7 @@ export const platformRouter = router({
         suppressionGrowth: suppressionGrowth.map((r) => ({
           tenantId: r.tenantId,
           tenantName: nameOf.get(r.tenantId) ?? '—',
-          count: r._count._all,
+          count: cAll(r),
         })),
       };
     }),

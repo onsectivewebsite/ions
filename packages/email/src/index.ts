@@ -1,4 +1,5 @@
 export * from './send';
+export type { EmailBrand } from './templates/base';
 export * from './templates/otp';
 export * from './templates/invite';
 export * from './templates/password-reset';
