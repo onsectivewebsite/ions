@@ -25,6 +25,7 @@ import {
 import { tiktokLeadsWebhookHandler } from './webhooks/tiktok.js';
 import { leadsIngestHandler } from './routes/leads-ingest.js';
 import { streamHandler } from './routes/stream.js';
+import { portalStreamHandler } from './routes/portal-stream.js';
 import {
   staffUploadHandler,
   publicCollectionGetHandler,
@@ -96,6 +97,10 @@ app.post('/api/v1/webhooks/tiktok-leads', adsBody, tiktokLeadsWebhookHandler);
 // SSE realtime stream — bearer token via ?token= since EventSource can't
 // set headers. Firm-scope only; auth is checked inside the handler.
 app.get('/api/v1/stream', streamHandler);
+
+// Portal SSE — same pattern but for client scope. Subscribes to the
+// per-client channel so messages + case updates flow without polling.
+app.get('/api/v1/portal/stream', portalStreamHandler);
 
 // Document uploads — body is raw bytes (Content-Type:
 // application/octet-stream), metadata in query string. 50 MB cap covers

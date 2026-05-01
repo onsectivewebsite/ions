@@ -134,17 +134,21 @@ export const messageRouter = router({
           readByStaff: new Date(),
         },
       });
-      await publishEvent(
-        { kind: 'tenant', tenantId: ctx.tenantId },
-        {
-          type: 'message.new',
-          messageId: msg.id,
-          clientId: input.clientId,
-          caseId: input.caseId ?? null,
-          sender: 'STAFF',
-          bodyPreview: preview(input.body),
-        },
-      );
+      const event = {
+        type: 'message.new' as const,
+        messageId: msg.id,
+        clientId: input.clientId,
+        caseId: input.caseId ?? null,
+        sender: 'STAFF' as const,
+        bodyPreview: preview(input.body),
+      };
+      await Promise.all([
+        // Firm-side fan-out (so staff's other tabs refresh).
+        publishEvent({ kind: 'tenant', tenantId: ctx.tenantId }, event),
+        // Client-side fan-out (so the portal's SSE pushes the new message
+        // to the client without them refreshing or focusing the tab).
+        publishEvent({ kind: 'client', tenantId: ctx.tenantId, clientId: input.clientId }, event),
+      ]);
 
       // Phase 9.5 — push the staff reply to the client's mobile devices.
       void (async () => {

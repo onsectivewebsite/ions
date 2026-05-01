@@ -13,6 +13,7 @@ import {
 } from '@onsecboad/ui';
 import { rpcMutation, rpcQuery } from '../../../lib/api';
 import { getPortalToken } from '../../../lib/portal-session';
+import { useRealtimePortal } from '../../../lib/portal-realtime';
 import { PortalShell } from '../../../components/portal/PortalShell';
 
 type Me = {
@@ -80,6 +81,14 @@ export default function PortalMessagesPage() {
     return () => window.removeEventListener('focus', onFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Real-time push: when staff replies, the SSE delivers the event and we
+  // refetch — no waiting for tab focus, no polling timer.
+  useRealtimePortal((ev) => {
+    if (ev.type === 'message.new' && ev.sender !== 'CLIENT') {
+      void load();
+    }
+  });
 
   useEffect(() => {
     const el = scrollRef.current;

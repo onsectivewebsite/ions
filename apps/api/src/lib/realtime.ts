@@ -48,12 +48,18 @@ export type RealtimeEvent =
 export type EventTarget =
   | { kind: 'tenant'; tenantId: string }
   | { kind: 'branch'; tenantId: string; branchId: string }
-  | { kind: 'user'; tenantId: string; userId: string };
+  | { kind: 'user'; tenantId: string; userId: string }
+  // `client` is used by the portal SSE pipe — events about a particular
+  // client of a firm (their messages, their case status updates) get
+  // published here. The portal stream subscribes to one of these per
+  // signed-in client.
+  | { kind: 'client'; tenantId: string; clientId: string };
 
 function channelFor(target: EventTarget): string {
   if (target.kind === 'tenant') return `tenant:${target.tenantId}`;
   if (target.kind === 'branch') return `tenant:${target.tenantId}:branch:${target.branchId}`;
-  return `tenant:${target.tenantId}:user:${target.userId}`;
+  if (target.kind === 'user') return `tenant:${target.tenantId}:user:${target.userId}`;
+  return `tenant:${target.tenantId}:client:${target.clientId}`;
 }
 
 export async function publishEvent(target: EventTarget, ev: RealtimeEvent): Promise<void> {
@@ -107,4 +113,11 @@ export function channelsForUser(input: {
     c.push(channelFor({ kind: 'branch', tenantId: input.tenantId, branchId: input.branchId }));
   }
   return c;
+}
+
+export function channelsForClient(input: {
+  tenantId: string;
+  clientId: string;
+}): string[] {
+  return [channelFor({ kind: 'client', tenantId: input.tenantId, clientId: input.clientId })];
 }

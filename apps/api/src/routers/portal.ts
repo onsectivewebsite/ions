@@ -337,6 +337,275 @@ export const portalRouter = router({
       };
     }),
 
+  // ─── Appointment self-service: request, reschedule, cancel ───────────
+  //
+  // Clients can propose a time for a consult against one of their cases —
+  // the appointment is created in SCHEDULED state with the case's lawyer
+  // as provider. The firm gets a real-time + push notification and can
+  // accept (CONFIRMED) or reschedule. Reschedule is direct (just moves the
+  // existing row); cancellation is also direct from the client side.
+
+  requestAppointment: clientProcedure
+    .input(
+      z.object({
+        caseId: z.string().uuid(),
+        scheduledAt: z.string().datetime(),
+        durationMin: z.number().int().min(15).max(8 * 60).default(30),
+        notes: z.string().max(2000).optional(),
+        kind: z.enum(['consultation', 'followup', 'document_review']).default('followup'),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const c = await ctx.prisma.case.findFirst({
+        where: {
+          id: input.caseId,
+          tenantId: ctx.tenantId,
+          clientId: ctx.clientId,
+          deletedAt: null,
+        },
+        select: { id: true, lawyerId: true, branchId: true, caseType: true },
+      });
+      if (!c) throw new TRPCError({ code: 'NOT_FOUND', message: 'Case not found' });
+      const when = new Date(input.scheduledAt);
+      if (when.getTime() < Date.now() - 60 * 1000) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Pick a time in the future.',
+        });
+      }
+      const appt = await ctx.prisma.appointment.create({
+        data: {
+          tenantId: ctx.tenantId,
+          providerId: c.lawyerId,
+          branchId: c.branchId,
+          clientId: ctx.clientId,
+          caseType: c.caseType,
+          scheduledAt: when,
+          durationMin: input.durationMin,
+          kind: input.kind,
+          status: 'SCHEDULED',
+          notes: input.notes
+            ? `[Requested by client via portal]\n${input.notes}`
+            : '[Requested by client via portal]',
+          // Track that this came from the portal so staff can sort.
+          createdBy: ctx.session.sub,
+        },
+      });
+
+      // Notify the firm (their /appointments page refreshes) and the lawyer
+      // directly so they get a push notification.
+      void Promise.all([
+        publishEvent(
+          { kind: 'tenant', tenantId: ctx.tenantId },
+          {
+            type: 'appointment.created',
+            appointmentId: appt.id,
+            scheduledAt: appt.scheduledAt.toISOString(),
+            providerId: c.lawyerId,
+          },
+        ),
+        (async () => {
+          try {
+            const { pushToUsers } = await import('../lib/push.js');
+            const tenant = await ctx.prisma.tenant.findUnique({
+              where: { id: ctx.tenantId },
+              select: { displayName: true },
+            });
+            const when = appt.scheduledAt.toLocaleString('en-CA', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            });
+            await pushToUsers([c.lawyerId], {
+              title: `${tenant?.displayName ?? 'Client'} booking request`,
+              body: `Client requested ${when}`,
+              data: { kind: 'appointment', id: appt.id },
+            });
+          } catch {
+            /* push is best-effort */
+          }
+        })(),
+      ]);
+
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'CLIENT',
+          action: 'portal.appointment.request',
+          targetType: 'Appointment',
+          targetId: appt.id,
+          payload: { caseId: c.id, scheduledAt: input.scheduledAt },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+
+      return appt;
+    }),
+
+  rescheduleAppointment: clientProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        scheduledAt: z.string().datetime(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Scope: client can only touch their own SCHEDULED/CONFIRMED appointments.
+      const existing = await ctx.prisma.appointment.findFirst({
+        where: {
+          id: input.id,
+          tenantId: ctx.tenantId,
+          clientId: ctx.clientId,
+        },
+      });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (existing.status !== 'SCHEDULED' && existing.status !== 'CONFIRMED') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Cannot reschedule a ${existing.status} appointment.`,
+        });
+      }
+      const when = new Date(input.scheduledAt);
+      if (when.getTime() < Date.now() - 60 * 1000) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Pick a time in the future.',
+        });
+      }
+      const updated = await ctx.prisma.appointment.update({
+        where: { id: existing.id },
+        data: {
+          scheduledAt: when,
+          // Bump back to SCHEDULED so staff re-confirms after a client move.
+          status: 'SCHEDULED',
+          notes: existing.notes
+            ? `${existing.notes}\n[Rescheduled by client]`
+            : '[Rescheduled by client]',
+        },
+      });
+
+      void publishEvent(
+        { kind: 'tenant', tenantId: ctx.tenantId },
+        {
+          type: 'appointment.created',
+          appointmentId: updated.id,
+          scheduledAt: updated.scheduledAt.toISOString(),
+          providerId: updated.providerId,
+        },
+      );
+      void (async () => {
+        try {
+          const { pushToUsers } = await import('../lib/push.js');
+          const friendly = updated.scheduledAt.toLocaleString('en-CA', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+          await pushToUsers([updated.providerId], {
+            title: 'Appointment rescheduled by client',
+            body: `Now ${friendly}`,
+            data: { kind: 'appointment', id: updated.id },
+          });
+        } catch {
+          /* push best-effort */
+        }
+      })();
+
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'CLIENT',
+          action: 'portal.appointment.reschedule',
+          targetType: 'Appointment',
+          targetId: updated.id,
+          payload: { from: existing.scheduledAt.toISOString(), to: input.scheduledAt },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+
+      return updated;
+    }),
+
+  cancelAppointment: clientProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        reason: z.string().max(500).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.appointment.findFirst({
+        where: {
+          id: input.id,
+          tenantId: ctx.tenantId,
+          clientId: ctx.clientId,
+        },
+      });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (
+        existing.status === 'COMPLETED' ||
+        existing.status === 'CANCELLED' ||
+        existing.status === 'NO_SHOW'
+      ) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Cannot cancel a ${existing.status} appointment.`,
+        });
+      }
+      const updated = await ctx.prisma.appointment.update({
+        where: { id: existing.id },
+        data: {
+          status: 'CANCELLED',
+          cancelledAt: new Date(),
+          cancelReason: input.reason ?? '[cancelled by client]',
+        },
+      });
+
+      void (async () => {
+        try {
+          const { pushToUsers } = await import('../lib/push.js');
+          await pushToUsers([updated.providerId], {
+            title: 'Appointment cancelled by client',
+            body:
+              updated.scheduledAt.toLocaleString('en-CA', {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              }) + (input.reason ? ` · ${input.reason}` : ''),
+            data: { kind: 'appointment', id: updated.id },
+          });
+        } catch {
+          /* push best-effort */
+        }
+      })();
+
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'CLIENT',
+          action: 'portal.appointment.cancel',
+          targetType: 'Appointment',
+          targetId: updated.id,
+          payload: { reason: input.reason ?? null },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
+      });
+
+      return updated;
+    }),
+
   // ─── Phase 7.2: Invoices + Stripe payment intents ─────────────────────
 
   invoicesList: clientProcedure.query(async ({ ctx }) => {
@@ -611,17 +880,21 @@ export const portalRouter = router({
           readByClient: new Date(),
         },
       });
-      await publishEvent(
-        { kind: 'tenant', tenantId: ctx.tenantId },
-        {
-          type: 'message.new',
-          messageId: msg.id,
-          clientId: ctx.clientId,
-          caseId: input.caseId ?? null,
-          sender: 'CLIENT',
-          bodyPreview: msg.body.length > 80 ? `${msg.body.slice(0, 79)}…` : msg.body,
-        },
-      );
+      const event = {
+        type: 'message.new' as const,
+        messageId: msg.id,
+        clientId: ctx.clientId,
+        caseId: input.caseId ?? null,
+        sender: 'CLIENT' as const,
+        bodyPreview: msg.body.length > 80 ? `${msg.body.slice(0, 79)}…` : msg.body,
+      };
+      await Promise.all([
+        // Firm staff need the new client message in their inbox immediately.
+        publishEvent({ kind: 'tenant', tenantId: ctx.tenantId }, event),
+        // Multi-device clients (e.g. phone + laptop both signed in) — echo
+        // to the per-client channel too so the other device updates.
+        publishEvent({ kind: 'client', tenantId: ctx.tenantId, clientId: ctx.clientId }, event),
+      ]);
       return msg;
     }),
 

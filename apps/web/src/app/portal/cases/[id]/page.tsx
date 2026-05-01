@@ -2,16 +2,20 @@
 import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ArrowRight, Calendar, CheckCircle2, ClipboardCheck, FileText } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Calendar, CalendarPlus, CheckCircle2, ClipboardCheck, FileText, X } from 'lucide-react';
 import {
   Badge,
+  Button,
   Card,
   CardTitle,
+  Input,
+  Label,
   Skeleton,
+  Spinner,
   ThemeProvider,
   type Branding,
 } from '@onsecboad/ui';
-import { rpcQuery } from '../../../../lib/api';
+import { rpcMutation, rpcQuery } from '../../../../lib/api';
 import { getPortalToken } from '../../../../lib/portal-session';
 import { PortalShell } from '../../../../components/portal/PortalShell';
 
@@ -92,6 +96,17 @@ export default function PortalCaseDetailPage({ params }: { params: Promise<{ id:
   const [me, setMe] = useState<Me | null>(null);
   const [c, setCase] = useState<CaseDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  async function refetch(): Promise<void> {
+    const token = getPortalToken();
+    if (!token) return;
+    try {
+      const k = await rpcQuery<CaseDetail>('portal.caseDetail', { id }, { token });
+      setCase(k);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load');
+    }
+  }
 
   useEffect(() => {
     const token = getPortalToken();
@@ -229,24 +244,8 @@ export default function PortalCaseDetailPage({ params }: { params: Promise<{ id:
             </Card>
           ) : null}
 
-          {c.appointments.length > 0 ? (
-            <Card>
-              <CardTitle>Appointments</CardTitle>
-              <ul className="mt-3 divide-y divide-[var(--color-border-muted)]">
-                {c.appointments.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between py-3">
-                    <div>
-                      <div className="text-sm font-medium">{new Date(a.scheduledAt).toLocaleString()}</div>
-                      <div className="mt-0.5 text-xs text-[var(--color-text-muted)]">
-                        {a.kind} · {a.provider.name} · {a.durationMin} min
-                      </div>
-                    </div>
-                    <Badge tone={a.status === 'COMPLETED' ? 'success' : 'neutral'}>{a.status}</Badge>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          ) : null}
+          <AppointmentsCard caseId={c.id} appointments={c.appointments} onChanged={refetch} />
+
 
           {c.irccLog.length > 0 ? (
             <Card>
@@ -296,6 +295,271 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div>
       <dt className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">{label}</dt>
       <dd className="mt-0.5 text-sm">{children}</dd>
+    </div>
+  );
+}
+
+type ApptRow = CaseDetail['appointments'][number];
+
+function AppointmentsCard({
+  caseId,
+  appointments,
+  onChanged,
+}: {
+  caseId: string;
+  appointments: ApptRow[];
+  onChanged: () => Promise<void>;
+}) {
+  // dialog state: 'request' for a brand-new ask, or { mode: 'reschedule', appt }
+  // to move an existing one. Same date-time picker drives both.
+  const [dialog, setDialog] = useState<
+    | { mode: 'request' }
+    | { mode: 'reschedule'; appt: ApptRow }
+    | null
+  >(null);
+
+  const upcoming = appointments.filter(
+    (a) => a.status === 'SCHEDULED' || a.status === 'CONFIRMED',
+  );
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-3">
+        <CardTitle>Appointments</CardTitle>
+        <Button size="sm" onClick={() => setDialog({ mode: 'request' })}>
+          <CalendarPlus size={14} /> Request a time
+        </Button>
+      </div>
+
+      {appointments.length === 0 ? (
+        <p className="mt-3 text-sm text-[var(--color-text-muted)]">
+          No appointments yet. Click <span className="font-medium">Request a time</span> to
+          propose a slot for a follow-up. Your firm confirms by email.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-[var(--color-border-muted)]">
+          {appointments.map((a) => {
+            const canEdit = a.status === 'SCHEDULED' || a.status === 'CONFIRMED';
+            return (
+              <li key={a.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {new Date(a.scheduledAt).toLocaleString()}
+                  </div>
+                  <div className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+                    {a.kind} · {a.provider.name} · {a.durationMin} min
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 sm:shrink-0">
+                  <Badge tone={a.status === 'COMPLETED' ? 'success' : 'neutral'}>
+                    {a.status}
+                  </Badge>
+                  {canEdit ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setDialog({ mode: 'reschedule', appt: a })}
+                      >
+                        Reschedule
+                      </Button>
+                      <CancelButton id={a.id} onChanged={onChanged} />
+                    </>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {upcoming.length === 0 && appointments.length > 0 ? (
+        <div className="mt-3 text-xs text-[var(--color-text-muted)]">
+          No upcoming bookings — request another consultation any time.
+        </div>
+      ) : null}
+
+      {dialog ? (
+        <BookingDialog
+          caseId={caseId}
+          mode={dialog.mode}
+          existingAppt={dialog.mode === 'reschedule' ? dialog.appt : undefined}
+          onClose={() => setDialog(null)}
+          onSaved={async () => {
+            setDialog(null);
+            await onChanged();
+          }}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function CancelButton({
+  id,
+  onChanged,
+}: {
+  id: string;
+  onChanged: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function cancel(): Promise<void> {
+    if (!confirm('Cancel this appointment? Your firm will be notified.')) return;
+    setBusy(true);
+    try {
+      const token = getPortalToken();
+      await rpcMutation('portal.cancelAppointment', { id }, { token });
+      await onChanged();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Cancel failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Button size="sm" variant="ghost" disabled={busy} onClick={cancel}>
+      {busy ? <Spinner /> : <X size={12} />} Cancel
+    </Button>
+  );
+}
+
+function BookingDialog({
+  caseId,
+  mode,
+  existingAppt,
+  onClose,
+  onSaved,
+}: {
+  caseId: string;
+  mode: 'request' | 'reschedule';
+  existingAppt?: ApptRow;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [when, setWhen] = useState<string>(() => {
+    // Default: tomorrow at 10am (or the existing appt's time on reschedule).
+    if (existingAppt) {
+      const d = new Date(existingAppt.scheduledAt);
+      // Convert to local-iso-without-tz for <input type="datetime-local">.
+      const pad = (n: number): string => n.toString().padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+        d.getHours(),
+      )}:${pad(d.getMinutes())}`;
+    }
+    const t = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    t.setHours(10, 0, 0, 0);
+    const pad = (n: number): string => n.toString().padStart(2, '0');
+    return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}T10:00`;
+  });
+  const [duration, setDuration] = useState(30);
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(): Promise<void> {
+    setBusy(true);
+    setErr(null);
+    try {
+      const token = getPortalToken();
+      const iso = new Date(when).toISOString();
+      if (mode === 'request') {
+        await rpcMutation(
+          'portal.requestAppointment',
+          { caseId, scheduledAt: iso, durationMin: duration, notes: notes || undefined },
+          { token },
+        );
+      } else if (existingAppt) {
+        await rpcMutation(
+          'portal.rescheduleAppointment',
+          { id: existingAppt.id, scheduledAt: iso },
+          { token },
+        );
+      }
+      await onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-12">
+      <Card className="w-full max-w-md">
+        <div className="flex items-center justify-between border-b border-[var(--color-border-muted)] pb-3">
+          <CardTitle>
+            {mode === 'request' ? 'Request a consultation time' : 'Reschedule appointment'}
+          </CardTitle>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-[var(--radius-md)] p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <p className="mt-3 text-xs text-[var(--color-text-muted)]">
+          {mode === 'request'
+            ? 'Pick a date and time that works for you. Your firm will confirm by email or message you on the portal if they need to suggest a different slot.'
+            : 'Pick a new time. Your firm will be notified to re-confirm.'}
+        </p>
+        <div className="mt-4 space-y-3">
+          <div>
+            <Label htmlFor="when">Date &amp; time</Label>
+            <Input
+              id="when"
+              type="datetime-local"
+              value={when}
+              onChange={(e) => setWhen(e.target.value)}
+            />
+          </div>
+          {mode === 'request' ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Duration</Label>
+                <select
+                  value={duration}
+                  onChange={(e) => setDuration(Number(e.target.value))}
+                  className="h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm"
+                >
+                  <option value={15}>15 min</option>
+                  <option value={30}>30 min</option>
+                  <option value={45}>45 min</option>
+                  <option value={60}>60 min</option>
+                </select>
+              </div>
+            </div>
+          ) : null}
+          {mode === 'request' ? (
+            <div>
+              <Label htmlFor="notes">Anything to flag for your lawyer?</Label>
+              <textarea
+                id="notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. follow-up about the police certificate request"
+                className="min-h-[80px] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-sm"
+                maxLength={2000}
+              />
+            </div>
+          ) : null}
+          {err ? (
+            <div className="rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] p-2 text-xs text-[var(--color-danger)]">
+              {err}
+            </div>
+          ) : null}
+          <div className="flex justify-end gap-2 border-t border-[var(--color-border-muted)] pt-3">
+            <Button variant="ghost" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={busy}>
+              {busy ? <Spinner /> : <CalendarPlus size={14} />}{' '}
+              {mode === 'request' ? 'Send request' : 'Save new time'}
+            </Button>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
