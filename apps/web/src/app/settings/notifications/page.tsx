@@ -1,12 +1,14 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bell, Check, Mail, MessageSquare } from 'lucide-react';
+import { Bell, Check, Clock, Mail, MessageSquare } from 'lucide-react';
 import {
   Button,
   Card,
   CardBody,
   CardTitle,
+  Input,
+  Label,
   Skeleton,
   ThemeProvider,
   type Branding,
@@ -216,9 +218,146 @@ export default function NotificationsPage() {
               {busy ? 'Saving…' : 'Save preferences'}
             </Button>
           </div>
+
+          <ReminderConfigCard />
         </div>
       </AppShell>
     </ThemeProvider>
+  );
+}
+
+type ReminderConfig = {
+  sendLong: boolean;
+  sendShort: boolean;
+  longHours: number;
+  shortMinutes: number;
+};
+
+function ReminderConfigCard() {
+  const [cfg, setCfg] = useState<ReminderConfig>({
+    sendLong: true,
+    sendShort: true,
+    longHours: 24,
+    shortMinutes: 60,
+  });
+  const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = getAccessToken();
+    rpcQuery<ReminderConfig | null>('tenant.reminderConfigGet', undefined, { token })
+      .then((c) => {
+        if (c) setCfg(c);
+      })
+      .catch(() => {
+        /* fall back to defaults */
+      });
+  }, []);
+
+  async function save(): Promise<void> {
+    setBusy(true);
+    setErr(null);
+    try {
+      const token = getAccessToken();
+      await rpcMutation('tenant.reminderConfigUpdate', cfg, { token });
+      setSavedAt(new Date());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-pill)] bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]">
+          <Clock size={16} />
+        </div>
+        <div>
+          <CardTitle>Appointment reminders (firm-wide)</CardTitle>
+          <CardBody className="mt-1 text-xs text-[var(--color-text-muted)]">
+            How far in advance reminders go out to clients. Applies to every
+            booking. Requires settings.write to change.
+          </CardBody>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <label className="flex items-start gap-3 rounded-[var(--radius-md)] border border-[var(--color-border-muted)] p-3">
+          <input
+            type="checkbox"
+            checked={cfg.sendLong}
+            onChange={(e) => setCfg({ ...cfg, sendLong: e.target.checked })}
+            className="mt-1 h-4 w-4 cursor-pointer accent-[var(--color-primary)]"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">Long-lead reminder</div>
+            <div className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+              Default 24 hours before. Useful for confirmations.
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={168}
+                value={cfg.longHours}
+                onChange={(e) => setCfg({ ...cfg, longHours: Number(e.target.value) || 24 })}
+                disabled={!cfg.sendLong}
+                className="w-20"
+              />
+              <span className="text-xs text-[var(--color-text-muted)]">hours before</span>
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 rounded-[var(--radius-md)] border border-[var(--color-border-muted)] p-3">
+          <input
+            type="checkbox"
+            checked={cfg.sendShort}
+            onChange={(e) => setCfg({ ...cfg, sendShort: e.target.checked })}
+            className="mt-1 h-4 w-4 cursor-pointer accent-[var(--color-primary)]"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">Short-lead reminder</div>
+            <div className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+              Default 60 minutes before. Last-call nudge so people show up.
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <Input
+                type="number"
+                min={5}
+                max={720}
+                value={cfg.shortMinutes}
+                onChange={(e) => setCfg({ ...cfg, shortMinutes: Number(e.target.value) || 60 })}
+                disabled={!cfg.sendShort}
+                className="w-20"
+              />
+              <span className="text-xs text-[var(--color-text-muted)]">minutes before</span>
+            </div>
+          </div>
+        </label>
+      </div>
+
+      {err ? (
+        <div className="mt-3 rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] p-2 text-xs text-[var(--color-danger)]">
+          {err}
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex items-center justify-end gap-3">
+        {savedAt ? (
+          <span className="inline-flex items-center gap-1 text-xs text-[var(--color-success)]">
+            <Check size={12} />
+            Saved {savedAt.toLocaleTimeString()}
+          </span>
+        ) : null}
+        <Button onClick={save} disabled={busy}>
+          {busy ? 'Saving…' : 'Save reminder config'}
+        </Button>
+      </div>
+    </Card>
   );
 }
 

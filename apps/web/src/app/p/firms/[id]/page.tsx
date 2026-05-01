@@ -17,7 +17,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { Badge, Button, Card, CardTitle, Input, Label, Skeleton, Spinner, ThemeProvider } from '@onsecboad/ui';
+import { Badge, Button, Card, CardBody, CardTitle, Input, Label, Skeleton, Spinner, ThemeProvider } from '@onsecboad/ui';
 import { rpcMutation, rpcQuery } from '../../../../lib/api';
 import { getAccessToken, setAccessToken } from '../../../../lib/session';
 import { AppShell, type ShellUser } from '../../../../components/AppShell';

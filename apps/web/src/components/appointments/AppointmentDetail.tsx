@@ -356,12 +356,15 @@ function OutcomeForm({
   const [notes, setNotes] = useState('');
   const [retainerFee, setRetainerFee] = useState('');
   const [busy, setBusy] = useState(false);
+  // RETAINER outcome auto-creates a Case; we surface the link so the user
+  // doesn't have to navigate to /cases and hunt for it.
+  const [createdCaseId, setCreatedCaseId] = useState<string | null>(null);
 
   async function save(): Promise<void> {
     setBusy(true);
     try {
       const t = getAccessToken();
-      await rpcMutation(
+      const r = await rpcMutation<{ caseId: string | null }>(
         'appointment.recordOutcome',
         {
           id: appt.id,
@@ -372,6 +375,7 @@ function OutcomeForm({
         },
         { token: t },
       );
+      if (r?.caseId) setCreatedCaseId(r.caseId);
       await onChanged();
     } catch (e) {
       onError(e instanceof Error ? e.message : 'Failed');
@@ -426,6 +430,17 @@ function OutcomeForm({
             placeholder="What was discussed, next steps, blockers…"
           />
         </div>
+        {createdCaseId ? (
+          <div className="rounded-[var(--radius-md)] border border-[var(--color-success)]/40 bg-[color-mix(in_srgb,var(--color-success)_10%,transparent)] p-3 text-sm">
+            Case created from this consultation.{' '}
+            <Link
+              href={`/cases/${createdCaseId}`}
+              className="font-medium text-[var(--color-primary)] hover:underline"
+            >
+              Open case →
+            </Link>
+          </div>
+        ) : null}
         <div className="flex justify-end">
           <Button onClick={save} disabled={busy}>
             {busy ? <Spinner /> : null} Save outcome
