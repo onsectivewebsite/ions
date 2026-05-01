@@ -276,9 +276,166 @@ export default function ProfilePage() {
           </Card>
 
           <CalendarCard />
+          <OfficeHoursCard />
         </div>
       </AppShell>
     </ThemeProvider>
+  );
+}
+
+type OfficeHours = Partial<
+  Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', [number, number] | null>
+>;
+
+const DAYS: { key: keyof OfficeHours; label: string }[] = [
+  { key: 'mon', label: 'Mon' },
+  { key: 'tue', label: 'Tue' },
+  { key: 'wed', label: 'Wed' },
+  { key: 'thu', label: 'Thu' },
+  { key: 'fri', label: 'Fri' },
+  { key: 'sat', label: 'Sat' },
+  { key: 'sun', label: 'Sun' },
+];
+
+const DEFAULT_HOURS: OfficeHours = {
+  mon: [9, 17],
+  tue: [9, 17],
+  wed: [9, 17],
+  thu: [9, 17],
+  fri: [9, 17],
+  sat: null,
+  sun: null,
+};
+
+function OfficeHoursCard() {
+  const [hours, setHours] = useState<OfficeHours | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    const token = getAccessToken();
+    rpcQuery<OfficeHours | null>('user.getOfficeHours', undefined, { token })
+      .then((r) => setHours(r ?? DEFAULT_HOURS))
+      .catch(() => setHours(DEFAULT_HOURS));
+  }, []);
+
+  if (!hours) return null;
+
+  function toggleDay(key: keyof OfficeHours): void {
+    setHours((h) => {
+      if (!h) return h;
+      const cur = h[key];
+      return { ...h, [key]: cur === null ? [9, 17] : null };
+    });
+  }
+  function setOpen(key: keyof OfficeHours, value: number): void {
+    setHours((h) => {
+      if (!h) return h;
+      const cur = h[key];
+      if (!cur) return h;
+      return { ...h, [key]: [value, cur[1]] };
+    });
+  }
+  function setClose(key: keyof OfficeHours, value: number): void {
+    setHours((h) => {
+      if (!h) return h;
+      const cur = h[key];
+      if (!cur) return h;
+      return { ...h, [key]: [cur[0], value] };
+    });
+  }
+  async function save(): Promise<void> {
+    if (!hours) return;
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      // Backfill any missing day keys with null so the schema accepts.
+      const full: OfficeHours = {
+        mon: hours.mon ?? null,
+        tue: hours.tue ?? null,
+        wed: hours.wed ?? null,
+        thu: hours.thu ?? null,
+        fri: hours.fri ?? null,
+        sat: hours.sat ?? null,
+        sun: hours.sun ?? null,
+      };
+      await rpcMutation('user.updateOfficeHours', full, { token });
+      setSavedAt(new Date());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardTitle>Office hours</CardTitle>
+      <CardBody className="mt-1 text-xs text-[var(--color-text-muted)]">
+        When can clients be booked with you? Booking dialog warns staff when they pick a
+        time outside these windows. Doesn&rsquo;t hard-block — overrides are still allowed.
+      </CardBody>
+      <div className="mt-4 space-y-2">
+        {DAYS.map(({ key, label }) => {
+          const window = hours[key] ?? null;
+          const off = window === null;
+          return (
+            <div
+              key={key}
+              className="flex items-center gap-3 rounded-[var(--radius-md)] border border-[var(--color-border-muted)] p-2"
+            >
+              <label className="flex w-20 items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={!off}
+                  onChange={() => toggleDay(key)}
+                  className="h-4 w-4 cursor-pointer accent-[var(--color-primary)]"
+                />
+                <span className="font-medium">{label}</span>
+              </label>
+              {window ? (
+                <>
+                  <select
+                    value={window[0]}
+                    onChange={(e) => setOpen(key, Number(e.target.value))}
+                    className="h-8 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-xs"
+                  >
+                    {Array.from({ length: 25 }, (_, i) => i).map((h) => (
+                      <option key={h} value={h}>
+                        {h}:00
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-[var(--color-text-muted)]">to</span>
+                  <select
+                    value={window[1]}
+                    onChange={(e) => setClose(key, Number(e.target.value))}
+                    className="h-8 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-xs"
+                  >
+                    {Array.from({ length: 25 }, (_, i) => i).map((h) => (
+                      <option key={h} value={h}>
+                        {h}:00
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <span className="text-xs text-[var(--color-text-muted)]">Off</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 flex items-center justify-end gap-3">
+        {savedAt ? (
+          <span className="inline-flex items-center gap-1 text-xs text-[var(--color-success)]">
+            <Check size={12} />
+            Saved {savedAt.toLocaleTimeString()}
+          </span>
+        ) : null}
+        <Button onClick={save} disabled={busy} size="sm">
+          {busy ? 'Saving…' : 'Save hours'}
+        </Button>
+      </div>
+    </Card>
   );
 }
 

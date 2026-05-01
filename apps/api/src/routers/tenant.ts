@@ -130,6 +130,38 @@ export const tenantRouter = router({
       return { ok: true };
     }),
 
+  reminderConfigGet: firmProcedure.query(async ({ ctx }) => {
+    const t = await ctx.prisma.tenant.findUnique({
+      where: { id: ctx.tenantId },
+      select: { reminderConfig: true },
+    });
+    return (
+      (t?.reminderConfig as unknown as {
+        sendLong: boolean;
+        sendShort: boolean;
+        longHours: number;
+        shortMinutes: number;
+      } | null) ?? null
+    );
+  }),
+
+  reminderConfigUpdate: requirePermission('settings', 'write')
+    .input(
+      z.object({
+        sendLong: z.boolean(),
+        sendShort: z.boolean(),
+        longHours: z.number().int().min(1).max(168), // 1 hour – 1 week
+        shortMinutes: z.number().int().min(5).max(720), // 5 min – 12 hours
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ctx.prisma.tenant.update({
+        where: { id: ctx.tenantId },
+        data: { reminderConfig: input },
+      });
+      return { ok: true };
+    }),
+
   /**
    * Seed sample leads, clients, cases, appointments tagged with [demo] in
    * notes so they can be wiped later. Useful so a fresh tenant doesn't

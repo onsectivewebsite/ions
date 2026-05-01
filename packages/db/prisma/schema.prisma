@@ -71,6 +71,9 @@ model Tenant {
   // ({ message, level: 'info' | 'warning' | 'urgent', expiresAt }).
   featureFlags         Json?
   announcement         Json?
+  // Reminder cron config: { sendLong: bool, sendShort: bool, longHours: int, shortMinutes: int }
+  // Defaults applied in code: { sendLong: true, sendShort: true, longHours: 24, shortMinutes: 60 }
+  reminderConfig       Json?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   deletedAt       DateTime?
@@ -118,6 +121,8 @@ model Tenant {
   pushDevices                PushDevice[]
   // Phase 10.1 back-relations
   suppression                SuppressionEntry[]
+  // Phase 6 (intake requests) back-relation
+  intakeRequests             IntakeRequest[]
 
   @@index([status])
 }
@@ -200,6 +205,7 @@ model User {
   casesAsFiler    Case[]    @relation("CaseFiler")
   retainersApproved RetainerAgreement[] @relation("RetainerApprovedBy")
   pushDevices     PushDevice[]
+  calendarConnections CalendarConnection[]
 
   @@unique([tenantId, email])
   @@index([tenantId, roleId])

@@ -489,6 +489,26 @@ export const appointmentRouter = router({
           ]);
         })();
       }
+
+      // Stage 19.4 — web push on reschedule. Only fire when the time
+      // actually moved; pure note edits don't need a notification.
+      if (input.scheduledAt && a.scheduledAt.getTime() !== existing.scheduledAt.getTime()) {
+        void (async () => {
+          const { pushToUsers } = await import('../lib/push.js');
+          const when = a.scheduledAt.toLocaleString('en-CA', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+          await pushToUsers([a.providerId], {
+            title: 'Appointment rescheduled',
+            body: `Now ${when}`,
+            data: { kind: 'appointment', id: a.id },
+          });
+        })();
+      }
       return a;
     }),
 
@@ -557,6 +577,25 @@ export const appointmentRouter = router({
             deleteAppointmentOnGoogle(a.id),
             deleteAppointmentOnOutlook(a.id),
           ]);
+        })();
+
+        // Stage 19.4 — web push the provider so they don't show up to a
+        // dead booking. Skip the other transitions (CONFIRMED, ARRIVED,
+        // etc.) — those happen in the office and don't need a notif.
+        void (async () => {
+          const { pushToUsers } = await import('../lib/push.js');
+          const when = a.scheduledAt.toLocaleString('en-CA', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+          await pushToUsers([a.providerId], {
+            title: 'Appointment cancelled',
+            body: `${when}${input.reason ? ` · ${input.reason}` : ''}`,
+            data: { kind: 'appointment', id: a.id },
+          });
         })();
       }
       return updated;

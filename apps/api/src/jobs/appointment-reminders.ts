@@ -26,15 +26,40 @@ type ApptRow = NonNullable<
   client: { firstName: string | null; lastName: string | null; email: string | null } | null;
   lead: { firstName: string | null; lastName: string | null; email: string | null } | null;
   provider: { name: string; email: string } | null;
-  tenant: { displayName: string; branding: unknown };
+  tenant: { displayName: string; branding: unknown; reminderConfig: unknown };
 };
+
+type TenantReminderConfig = {
+  sendLong?: boolean;
+  sendShort?: boolean;
+  longHours?: number;
+  shortMinutes?: number;
+};
+
+const DEFAULT_LONG_HOURS = 24;
+const DEFAULT_SHORT_MINUTES = 60;
+// Cron tick window — keep wide enough to absorb cron jitter / restarts.
+const TICK_WINDOW_MS = 60 * 60 * 1000; // long: ±30 min around N hours
+const SHORT_TICK_WINDOW_MS = 20 * 60 * 1000; // short: ±10 min
+
+function tenantConfig(t: { reminderConfig?: unknown }): Required<TenantReminderConfig> {
+  const c = (t.reminderConfig as TenantReminderConfig | null | undefined) ?? {};
+  return {
+    sendLong: c.sendLong ?? true,
+    sendShort: c.sendShort ?? true,
+    longHours: c.longHours ?? DEFAULT_LONG_HOURS,
+    shortMinutes: c.shortMinutes ?? DEFAULT_SHORT_MINUTES,
+  };
+}
 
 async function loadDue(kind: 'long' | 'short'): Promise<ApptRow[]> {
   const now = Date.now();
+  // Use widest possible window across tenants — actual filtering by
+  // each tenant's lead time happens in code below.
   const fromMs =
-    kind === 'long' ? now + 24 * 60 * 60 * 1000 : now + 50 * 60 * 1000;
+    kind === 'long' ? now + 22 * 60 * 60 * 1000 : now + 40 * 60 * 1000;
   const toMs =
-    kind === 'long' ? now + 25 * 60 * 60 * 1000 : now + 70 * 60 * 1000;
+    kind === 'long' ? now + 26 * 60 * 60 * 1000 : now + 80 * 60 * 1000;
   return prisma.appointment.findMany({
     where: {
       scheduledAt: { gte: new Date(fromMs), lt: new Date(toMs) },
@@ -44,9 +69,21 @@ async function loadDue(kind: 'long' | 'short'): Promise<ApptRow[]> {
       client: { select: { firstName: true, lastName: true, email: true } },
       lead: { select: { firstName: true, lastName: true, email: true } },
       provider: { select: { name: true, email: true } },
-      tenant: { select: { displayName: true, branding: true } },
+      tenant: { select: { displayName: true, branding: true, reminderConfig: true } },
     },
   }) as unknown as Promise<ApptRow[]>;
+}
+
+function isInWindow(scheduledAt: Date, kind: 'long' | 'short', cfg: Required<TenantReminderConfig>): boolean {
+  const ms = scheduledAt.getTime() - Date.now();
+  if (kind === 'long') {
+    if (!cfg.sendLong) return false;
+    const target = cfg.longHours * 60 * 60 * 1000;
+    return Math.abs(ms - target) < TICK_WINDOW_MS / 2;
+  }
+  if (!cfg.sendShort) return false;
+  const target = cfg.shortMinutes * 60 * 1000;
+  return Math.abs(ms - target) < SHORT_TICK_WINDOW_MS / 2;
 }
 
 async function sendOne(a: ApptRow, kind: 'long' | 'short'): Promise<boolean> {
@@ -101,6 +138,8 @@ export async function appointmentRemindersTick(): Promise<{
     stats.scanned += rows.length;
     for (const a of rows) {
       try {
+        const cfg = tenantConfig(a.tenant);
+        if (!isInWindow(a.scheduledAt, kind, cfg)) continue;
         const sent = await sendOne(a, kind);
         if (sent) stats.sent++;
       } catch (e) {

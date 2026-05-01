@@ -51,6 +51,7 @@ import {
   outlookConnectHandler,
   outlookCallbackHandler,
 } from './routes/calendar-outlook.js';
+import { userCalendarFeedHandler } from './routes/calendar-feed.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
 const env = loadEnv();
@@ -134,6 +135,10 @@ app.get('/api/v1/calendar/google/connect', googleConnectHandler);
 app.get('/api/v1/calendar/google/callback', googleCallbackHandler);
 app.get('/api/v1/calendar/outlook/connect', outlookConnectHandler);
 app.get('/api/v1/calendar/outlook/callback', outlookCallbackHandler);
+
+// Per-user iCal feed — calendar apps subscribe via this URL with a JWT
+// in the query string. See routes/calendar-feed.ts for details.
+app.get('/api/v1/users/:userId/calendar.ics', userCalendarFeedHandler);
 
 // Email-provider webhook (deliverability + bounce + complaint events).
 // Auth via shared secret in Authorization header. Body is JSON of varying
