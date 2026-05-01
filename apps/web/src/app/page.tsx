@@ -1,3 +1,4 @@
+'use client';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -12,27 +13,30 @@ import {
 } from 'lucide-react';
 import { Button } from '@onsecboad/ui';
 import { Logo } from '../components/Logo';
+import { LocaleSwitcher, useT } from '../i18n';
 
 export default function HomePage() {
+  const { t } = useT();
   return (
     <main className="min-h-screen bg-mesh">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <Logo />
         <div className="flex items-center gap-2">
+          <LocaleSwitcher className="hidden sm:inline-flex" />
           <Link
             href="/pricing"
             className="hidden text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] sm:block"
           >
-            Pricing
+            {t('nav.pricing')}
           </Link>
           <Link href="/sign-in" className="hidden sm:block">
             <Button size="sm" variant="ghost">
-              Sign in
+              {t('nav.signIn')}
             </Button>
           </Link>
           <Link href="/sign-up">
             <Button size="sm">
-              Start free trial
+              {t('nav.startTrial')}
               <ArrowRight size={14} />
             </Button>
           </Link>
@@ -42,35 +46,31 @@ export default function HomePage() {
       <section className="mx-auto max-w-3xl px-6 pb-16 pt-16 text-center sm:pt-24">
         <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-text-muted)]">
           <Sparkles size={12} />
-          Built for Canadian immigration law firms
+          {t('home.eyebrow')}
         </div>
         <h1 className="mt-6 text-4xl font-semibold leading-[1.05] tracking-tight text-[var(--color-text)] sm:text-5xl">
-          The operating system for{' '}
+          {t('home.heroLeft')}{' '}
           <span className="bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-accent)] bg-clip-text text-transparent">
-            Canadian immigration practices.
+            {t('home.heroRight')}
           </span>
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-[var(--color-text-muted)] sm:text-lg">
-          Walk-ins, leads, intake forms, consultations, retainers, IRCC submissions, and
-          billing — one workspace your whole firm uses, from the receptionist to the
-          principal lawyer.
+          {t('home.subhead')}
         </p>
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link href="/sign-up">
             <Button size="lg">
-              Start free trial
+              {t('cta.startTrial')}
               <ArrowRight size={16} />
             </Button>
           </Link>
           <Link href="/demo">
             <Button size="lg" variant="secondary">
-              See it in action
+              {t('cta.seeInAction')}
             </Button>
           </Link>
         </div>
-        <p className="mt-4 text-xs text-[var(--color-text-muted)]">
-          14-day trial · No credit card · Cancel anytime
-        </p>
+        <p className="mt-4 text-xs text-[var(--color-text-muted)]">{t('home.trialNote')}</p>
       </section>
 
       <section className="mx-auto max-w-5xl px-6 pb-16">

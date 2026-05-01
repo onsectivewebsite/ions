@@ -274,8 +274,122 @@ export default function ProfilePage() {
               </a>
             </div>
           </Card>
+
+          <CalendarCard />
         </div>
       </AppShell>
     </ThemeProvider>
+  );
+}
+
+type CalendarList = {
+  configured: boolean;
+  items: {
+    id: string;
+    provider: string;
+    externalAccount: string;
+    status: string;
+    lastSyncedAt: string | null;
+    lastError: string | null;
+  }[];
+};
+
+function CalendarCard() {
+  const [data, setData] = useState<CalendarList | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function load(): Promise<void> {
+    const token = getAccessToken();
+    const r = await rpcQuery<CalendarList>('calendar.list', undefined, { token });
+    setData(r);
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function disconnect(id: string): Promise<void> {
+    if (!confirm('Disconnect this calendar? Future appointments stop syncing.')) return;
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      await rpcMutation('calendar.disconnect', { id }, { token });
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function connectGoogle(): void {
+    if (typeof window === 'undefined') return;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+    const token = getAccessToken();
+    if (!token) return;
+    window.location.href = `${apiBase}/api/v1/calendar/google/connect?token=${encodeURIComponent(token)}`;
+  }
+
+  if (!data) return null;
+
+  return (
+    <Card>
+      <CardTitle>Calendar sync</CardTitle>
+      <CardBody className="mt-1 text-xs text-[var(--color-text-muted)]">
+        Push booked consultations to your Google Calendar automatically.
+      </CardBody>
+
+      {!data.configured ? (
+        <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--color-warning)]/40 bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-3 text-xs">
+          Google Calendar isn&rsquo;t configured for this OnsecBoad install. Ask your firm
+          admin or Onsective to set <span className="font-mono">GOOGLE_OAUTH_CLIENT_ID</span>{' '}
+          + secret in the API .env.
+        </div>
+      ) : null}
+
+      <div className="mt-4 space-y-2">
+        {data.items.length === 0 ? (
+          <div className="text-xs text-[var(--color-text-muted)]">No calendars connected.</div>
+        ) : (
+          data.items.map((c) => (
+            <div
+              key={c.id}
+              className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border-muted)] p-3"
+            >
+              <div>
+                <div className="text-sm font-medium">
+                  {c.provider === 'google' ? 'Google Calendar' : c.provider}
+                </div>
+                <div className="text-xs text-[var(--color-text-muted)]">
+                  {c.externalAccount} · {c.status}
+                  {c.lastSyncedAt
+                    ? ` · last synced ${new Date(c.lastSyncedAt).toLocaleString()}`
+                    : ''}
+                </div>
+                {c.lastError ? (
+                  <div className="mt-1 text-[11px] text-[var(--color-danger)]">
+                    {c.lastError}
+                  </div>
+                ) : null}
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy || c.status !== 'active'}
+                onClick={() => disconnect(c.id)}
+              >
+                Disconnect
+              </Button>
+            </div>
+          ))
+        )}
+      </div>
+
+      {data.configured ? (
+        <div className="mt-4">
+          <Button onClick={connectGoogle} size="sm" variant="secondary">
+            Connect Google Calendar
+          </Button>
+        </div>
+      ) : null}
+    </Card>
   );
 }

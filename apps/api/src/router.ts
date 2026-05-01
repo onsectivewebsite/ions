@@ -22,6 +22,7 @@ import { kpiRouter } from './routers/kpi.js';
 import { clientRouter } from './routers/client.js';
 import { intakeTemplateRouter } from './routers/intake-template.js';
 import { intakeRouter } from './routers/intake.js';
+import { calendarRouter } from './routers/calendar.js';
 import { appointmentRouter } from './routers/appointment.js';
 import { caseRouter } from './routers/case.js';
 import { retainerTemplateRouter } from './routers/retainer-template.js';
@@ -65,6 +66,7 @@ export const appRouter = router({
   client: clientRouter,
   intakeTemplate: intakeTemplateRouter,
   intake: intakeRouter,
+  calendar: calendarRouter,
   appointment: appointmentRouter,
   cases: caseRouter,
   retainerTemplate: retainerTemplateRouter,

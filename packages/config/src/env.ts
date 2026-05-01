@@ -101,6 +101,20 @@ const envSchema = z.object({
   // authenticate provider callbacks (Postmark/SendGrid/Resend/SES).
   // Configure the same value at the provider's webhook target.
   EMAIL_WEBHOOK_SECRET: z.string().optional(),
+
+  // Stage 15.2 — Onsective ops inbox. The abuse-alerts cron emails
+  // here when a tenant crosses a threshold. Defaults to the SMTP
+  // sender so dev doesn't need extra config; override in prod.
+  ONSEC_ALERT_EMAIL: z.string().email().optional(),
+  CRON_ABUSE_ALERTS: z.string().default('5 * * * *'), // hourly at :05
+
+  // Stage 15.5 — Google Calendar OAuth. Required for one-way appointment
+  // sync. Get the credentials at console.cloud.google.com → APIs &
+  // Services → Credentials. Authorized redirect URI must be
+  //   <API_URL>/api/v1/calendar/google/callback
+  // No values configured = the connect button shows "Not configured".
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

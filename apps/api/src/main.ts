@@ -39,6 +39,14 @@ import {
   publicIntakeSubmitHandler,
 } from './routes/public-intake.js';
 import { emailWebhookHandler } from './webhooks/email.js';
+import {
+  emailOpenHandler,
+  emailClickHandler,
+} from './routes/email-tracking.js';
+import {
+  googleConnectHandler,
+  googleCallbackHandler,
+} from './routes/calendar-google.js';
 import { startScheduledJobs } from './jobs/scheduler.js';
 
 const env = loadEnv();
@@ -111,6 +119,15 @@ app.post(
   express.json({ limit: '256kb' }),
   publicIntakeSubmitHandler,
 );
+
+// Built-in email tracking (open pixel + click redirect).
+app.get('/api/v1/email/open/:id', emailOpenHandler);
+app.get('/api/v1/email/click/:id', emailClickHandler);
+
+// Google Calendar OAuth — auth via ?token= since the browser does the
+// redirect dance and can't set Authorization headers.
+app.get('/api/v1/calendar/google/connect', googleConnectHandler);
+app.get('/api/v1/calendar/google/callback', googleCallbackHandler);
 
 // Email-provider webhook (deliverability + bounce + complaint events).
 // Auth via shared secret in Authorization header. Body is JSON of varying

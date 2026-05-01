@@ -299,6 +299,20 @@ export const appointmentRouter = router({
         });
       })();
 
+      // Stage 15.5 — push to provider's connected Google Calendar.
+      void (async () => {
+        const { pushAppointmentToGoogle } = await import('../lib/google-calendar.js');
+        const start = appt.scheduledAt;
+        const end = new Date(start.getTime() + (appt.durationMin ?? 30) * 60 * 1000);
+        await pushAppointmentToGoogle(input.providerId, {
+          appointmentId: appt.id,
+          summary: `${appt.kind === 'consultation' ? 'Consultation' : appt.kind} — OnsecBoad`,
+          description: input.notes ?? undefined,
+          startISO: start.toISOString(),
+          endISO: end.toISOString(),
+        });
+      })();
+
       return appt;
     }),
 

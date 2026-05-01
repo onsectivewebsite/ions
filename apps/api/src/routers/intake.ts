@@ -14,13 +14,14 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '@onsecboad/db';
-import { sendIntakeRequestEmail } from '@onsecboad/email';
+import { buildIntakeRequestEmail } from '@onsecboad/email';
 import { loadEnv } from '@onsecboad/config';
 import { sendSms } from '@onsecboad/twilio';
 import { router } from '../trpc.js';
 import { requirePermission } from '../lib/permissions.js';
 import { tenantEmailBrand } from '../lib/email-brand.js';
 import { getTwilioCreds } from '../lib/twilio-config.js';
+import { sendTrackedEmail } from '../lib/track-email.js';
 import { logger } from '../logger.js';
 
 const env = loadEnv();
@@ -308,7 +309,7 @@ export const intakeRouter = router({
 
       if (input.sentVia === 'email' && input.recipientEmail) {
         try {
-          const result = await sendIntakeRequestEmail({
+          const built = buildIntakeRequestEmail({
             to: input.recipientEmail,
             recipientName: input.recipientName ?? 'there',
             firmName: tenant?.displayName ?? 'Your firm',
@@ -316,6 +317,12 @@ export const intakeRouter = router({
             url,
             ttlDays: input.ttlDays,
             brand: tenantEmailBrand(tenant),
+          });
+          const result = await sendTrackedEmail({
+            ...built,
+            tenantId: ctx.tenantId,
+            templateKey: 'intake-request',
+            leadId: input.leadId,
           });
           if (result.ok) {
             emailSent = true;

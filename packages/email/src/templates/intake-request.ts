@@ -1,4 +1,4 @@
-import { sendEmail, type SendEmailResult } from '../send';
+import { sendEmail, type SendEmailInput, type SendEmailResult } from '../send';
 import { htmlShell, buttonHtml, escapeHtml, type EmailBrand } from './base';
 
 export type SendIntakeRequestInput = {
@@ -11,10 +11,11 @@ export type SendIntakeRequestInput = {
   brand?: EmailBrand;
 };
 
-export async function sendIntakeRequestEmail(
-  input: SendIntakeRequestInput,
-): Promise<SendEmailResult> {
-  const productName = input.brand?.productName ?? 'OnsecBoad';
+/**
+ * Builder — returns the SendEmailInput so callers can decide whether
+ * to call sendEmail directly or wrap with the tracking pipeline.
+ */
+export function buildIntakeRequestEmail(input: SendIntakeRequestInput): SendEmailInput {
   const body = `
     <h1 style="margin:0 0 12px 0;font-size:20px;font-weight:600;">${escapeHtml(input.firmName)} has sent you a form</h1>
     <p style="margin:0 0 12px 0;font-size:14px;">Hi ${escapeHtml(input.recipientName)},</p>
@@ -37,11 +38,17 @@ export async function sendIntakeRequestEmail(
     `${input.firmName} has sent you an intake form: ${input.templateName}.\n\n` +
     `Open here: ${input.url}\n\n` +
     `The link expires in ${input.ttlDays} day${input.ttlDays === 1 ? '' : 's'}.\n`;
-  return sendEmail({
+  return {
     to: input.to,
     subject: `${input.firmName} — please fill in your intake form`,
     html: htmlShell(body, input.brand),
     text,
     headers: { 'X-Entity-Ref-ID': 'intake-request' },
-  });
+  };
+}
+
+export async function sendIntakeRequestEmail(
+  input: SendIntakeRequestInput,
+): Promise<SendEmailResult> {
+  return sendEmail(buildIntakeRequestEmail(input));
 }

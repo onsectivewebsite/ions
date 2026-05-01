@@ -14,6 +14,7 @@ import { reconcileAllSeats } from './seat-reconcile.js';
 import { aiAgentTick } from './ai-agent-tick.js';
 import { dataPurgeTick } from './data-purge.js';
 import { auditPurgeTick } from './audit-purge.js';
+import { abuseAlertsTick } from './abuse-alerts.js';
 
 const env = loadEnv();
 
@@ -83,6 +84,24 @@ export function startScheduledJobs(): void {
       }
     });
     logger.info({ schedule: env.CRON_DATA_PURGE }, 'cron: data purge scheduled');
+  }
+
+  // Stage 15.2 — hourly abuse-signal alerts to Onsective ops.
+  if (cron.validate(env.CRON_ABUSE_ALERTS)) {
+    cron.schedule(env.CRON_ABUSE_ALERTS, async () => {
+      const start = Date.now();
+      logger.info('cron: abuse alerts starting');
+      try {
+        const r = await abuseAlertsTick();
+        logger.info(
+          { ...r, ms: Date.now() - start },
+          `cron: abuse alerts done — scanned ${r.scanned}, alerts ${r.alerts}, emailed ${r.emailed}, errors ${r.errors}`,
+        );
+      } catch (e) {
+        logger.error({ err: e }, 'cron: abuse alerts threw');
+      }
+    });
+    logger.info({ schedule: env.CRON_ABUSE_ALERTS }, 'cron: abuse alerts scheduled');
   }
 
   // Stage 5.2 + 8.4 — daily audit log purge respecting per-tenant retention.
