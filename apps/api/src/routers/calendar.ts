@@ -17,7 +17,14 @@ export const calendarRouter = router({
    * user's connections (sans tokens).
    */
   list: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.session.scope !== 'firm') return { configured: false, items: [] };
+    if (ctx.session.scope !== 'firm') {
+      return {
+        configured: false,
+        googleConfigured: false,
+        outlookConfigured: false,
+        items: [],
+      };
+    }
     const items = await ctx.prisma.calendarConnection.findMany({
       where: { userId: ctx.session.sub },
       orderBy: { createdAt: 'desc' },
@@ -31,8 +38,18 @@ export const calendarRouter = router({
         createdAt: true,
       },
     });
-    const configured = !!env.GOOGLE_OAUTH_CLIENT_ID && !!env.GOOGLE_OAUTH_CLIENT_SECRET;
-    return { configured, items };
+    const googleConfigured =
+      !!env.GOOGLE_OAUTH_CLIENT_ID && !!env.GOOGLE_OAUTH_CLIENT_SECRET;
+    const outlookConfigured =
+      !!env.MS_OAUTH_CLIENT_ID && !!env.MS_OAUTH_CLIENT_SECRET;
+    return {
+      // `configured` is kept for backward-compat with existing UI; truthy if
+      // either provider is set up.
+      configured: googleConfigured || outlookConfigured,
+      googleConfigured,
+      outlookConfigured,
+      items,
+    };
   }),
 
   /** Disconnect a calendar — sets status='revoked' and forgets tokens. */

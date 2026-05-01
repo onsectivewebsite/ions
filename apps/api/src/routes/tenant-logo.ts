@@ -1,17 +1,19 @@
 /**
- * Tenant logo: upload (auth, raw bytes) + public proxy (no auth, streams from R2).
+ * Tenant logo: upload (auth, raw bytes) + public proxy (no auth).
  *
- * Why a proxy instead of returning the R2 URL directly:
- *  - R2 buckets default to private. Signed URLs expire — a logo URL in the
- *    branding column would silently rot.
- *  - The proxy keeps the URL stable (`/api/v1/tenant/:tenantId/logo`) and lets
- *    us swap R2 keys without rewriting the stored URL.
- *  - The route is public because the sign-in / invite pages render the logo
- *    before the user authenticates.
+ * Storage: logos are stored as data URLs directly inside tenant.branding.logoUrl.
+ * They're capped at 2 MB and a typical firm logo is well under 100 KB, so the
+ * JSON column handles them comfortably. This keeps logos independent of any
+ * external object store (R2, S3, etc.) — the firm's branding belongs in our
+ * own database, not a third-party blob store.
+ *
+ * The /api/v1/tenant/:tenantId/logo proxy route is preserved for backward
+ * compatibility with logos uploaded under the old R2 flow (their branding
+ * still has logoR2Key set). New uploads bypass the proxy entirely.
  */
 import type { Request, Response } from 'express';
 import { prisma } from '@onsecboad/db';
-import { uploadBuffer, getObject, isDryRun } from '@onsecboad/r2';
+import { getObject, isDryRun } from '@onsecboad/r2';
 import { verifyAccessToken } from '@onsecboad/auth';
 import { loadEnv } from '@onsecboad/config';
 import { logger } from '../logger.js';
@@ -58,47 +60,18 @@ export async function uploadLogoHandler(req: Request, res: Response): Promise<vo
     return;
   }
 
-  const ext =
-    contentType === 'image/png'
-      ? 'png'
-      : contentType === 'image/svg+xml'
-        ? 'svg'
-        : contentType === 'image/webp'
-          ? 'webp'
-          : 'jpg';
-
   const tenant = await prisma.tenant.findUnique({ where: { id: claims.tenantId } });
   const prevBranding = (tenant?.branding ?? {}) as Record<string, unknown>;
 
-  // Without R2 configured we'd silently store a logoR2Key that the proxy
-  // can never serve — the user uploads a logo and sees a broken image
-  // forever. So when R2 is in dry-run, fall back to a data URL stored
-  // directly in branding.logoUrl. Logos are small (≤2 MB) and the JSON
-  // column handles it. Real-R2 deployments still use the proxy path.
-  let proxyUrl: string;
-  let r2Key: string | null = null;
-  let bytes: number;
-  if (isDryRun()) {
-    proxyUrl = `data:${contentType};base64,${body.toString('base64')}`;
-    bytes = body.length;
-    logger.info(
-      { tenantId: claims.tenantId, bytes },
-      'logo upload: R2 not configured, storing as data URL',
-    );
-  } else {
-    const key = `tenant/${claims.tenantId}/branding/logo-${Date.now()}.${ext}`;
-    const upload = await uploadBuffer(key, body, contentType);
-    r2Key = key;
-    bytes = upload.bytes;
-    proxyUrl = `${env.API_URL.replace(/\/$/, '')}/api/v1/tenant/${claims.tenantId}/logo`;
-  }
-
+  // Always store as data URL directly in branding.logoUrl. No external
+  // object store — the firm's logo lives in our database where the rest
+  // of their branding lives.
+  const logoUrl = `data:${contentType};base64,${body.toString('base64')}`;
   const newBranding = {
     ...prevBranding,
-    logoUrl: proxyUrl,
-    // Carry the key only for real-R2 mode; clear it on data-URL mode so
-    // a stale key from a prior real-R2 run doesn't shadow the data URL.
-    logoR2Key: r2Key,
+    logoUrl,
+    // Clear any legacy R2 key so the data URL takes precedence everywhere.
+    logoR2Key: null,
   };
   await prisma.tenant.update({
     where: { id: claims.tenantId },
@@ -113,13 +86,13 @@ export async function uploadLogoHandler(req: Request, res: Response): Promise<vo
       action: 'tenant.logo.upload',
       targetType: 'Tenant',
       targetId: claims.tenantId,
-      payload: { key: r2Key, bytes, contentType, mode: r2Key ? 'r2' : 'data-url' },
+      payload: { bytes: body.length, contentType, mode: 'data-url' },
       ip: req.ip ?? null,
       userAgent: (req.headers['user-agent'] as string) ?? null,
     },
   });
 
-  res.json({ ok: true, url: proxyUrl, bytes });
+  res.json({ ok: true, url: logoUrl, bytes: body.length });
 }
 
 export async function logoProxyHandler(req: Request, res: Response): Promise<void> {

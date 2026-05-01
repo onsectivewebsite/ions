@@ -441,6 +441,8 @@ function OfficeHoursCard() {
 
 type CalendarList = {
   configured: boolean;
+  googleConfigured: boolean;
+  outlookConfigured: boolean;
   items: {
     id: string;
     provider: string;
@@ -494,11 +496,64 @@ function CalendarCard() {
         Push booked consultations to your Google Calendar automatically.
       </CardBody>
 
-      {!data.configured ? (
-        <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--color-warning)]/40 bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-3 text-xs">
-          Google Calendar isn&rsquo;t configured for this OnsecBoad install. Ask your firm
-          admin or Onsective to set <span className="font-mono">GOOGLE_OAUTH_CLIENT_ID</span>{' '}
-          + secret in the API .env.
+      {!data.googleConfigured || !data.outlookConfigured ? (
+        <div className="mt-4 space-y-2 rounded-[var(--radius-md)] border border-[var(--color-warning)]/40 bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-3 text-xs">
+          {!data.googleConfigured && !data.outlookConfigured ? (
+            <p>No calendar provider is configured for this install yet.</p>
+          ) : !data.googleConfigured ? (
+            <p>Google Calendar isn&rsquo;t configured.</p>
+          ) : (
+            <p>Outlook / Microsoft 365 isn&rsquo;t configured.</p>
+          )}
+          <details className="cursor-pointer">
+            <summary className="font-medium">How to enable</summary>
+            <div className="mt-2 space-y-2 text-[11px] leading-relaxed">
+              {!data.googleConfigured ? (
+                <div>
+                  <div className="font-medium">Google</div>
+                  <ol className="ml-4 list-decimal space-y-0.5">
+                    <li>Open Google Cloud Console → APIs &amp; Services → Credentials.</li>
+                    <li>Create an OAuth 2.0 Client ID (type: Web application).</li>
+                    <li>
+                      Add redirect URI:{' '}
+                      <span className="font-mono">
+                        {(process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '') ||
+                          'https://api.onsective.cloud'}
+                        /api/v1/calendar/google/callback
+                      </span>
+                    </li>
+                    <li>
+                      Set <span className="font-mono">GOOGLE_OAUTH_CLIENT_ID</span> and{' '}
+                      <span className="font-mono">GOOGLE_OAUTH_CLIENT_SECRET</span> in the API env, restart.
+                    </li>
+                  </ol>
+                </div>
+              ) : null}
+              {!data.outlookConfigured ? (
+                <div>
+                  <div className="font-medium">Outlook / Microsoft 365</div>
+                  <ol className="ml-4 list-decimal space-y-0.5">
+                    <li>Open Azure Portal → App Registrations → New registration.</li>
+                    <li>Account types: any Microsoft account (multitenant + personal).</li>
+                    <li>
+                      Add redirect URI (Web):{' '}
+                      <span className="font-mono">
+                        {(process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '') ||
+                          'https://api.onsective.cloud'}
+                        /api/v1/calendar/outlook/callback
+                      </span>
+                    </li>
+                    <li>API permissions → add Calendars.ReadWrite (delegated).</li>
+                    <li>Certificates &amp; Secrets → New client secret.</li>
+                    <li>
+                      Set <span className="font-mono">MS_OAUTH_CLIENT_ID</span> and{' '}
+                      <span className="font-mono">MS_OAUTH_CLIENT_SECRET</span> in the API env, restart.
+                    </li>
+                  </ol>
+                </div>
+              ) : null}
+            </div>
+          </details>
         </div>
       ) : null}
 
@@ -545,8 +600,8 @@ function CalendarCard() {
           onClick={() => connect('google')}
           size="sm"
           variant="secondary"
-          disabled={!data.configured}
-          title={!data.configured ? 'Google OAuth not configured' : undefined}
+          disabled={!data.googleConfigured}
+          title={!data.googleConfigured ? 'Google OAuth not configured' : undefined}
         >
           Connect Google
         </Button>
@@ -554,6 +609,8 @@ function CalendarCard() {
           onClick={() => connect('outlook')}
           size="sm"
           variant="secondary"
+          disabled={!data.outlookConfigured}
+          title={!data.outlookConfigured ? 'Microsoft OAuth not configured' : undefined}
         >
           Connect Outlook
         </Button>
