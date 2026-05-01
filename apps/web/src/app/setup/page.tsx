@@ -45,8 +45,12 @@ function SetupInner() {
   const [confirm, setConfirm] = useState('');
   const policy = checkPassword(password);
 
-  // Step 2: branding
+  // Step 2: branding (theme + optional logo). The logo file is held until
+  // setup.complete returns an access token — the upload endpoint is
+  // firm-scoped, so we can't upload until we're authenticated.
   const [branding, setBranding] = useState<Branding>({ themeCode: 'maple' });
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoErr, setLogoErr] = useState<string | null>(null);
 
   // Step 3: first branch
   const [branchName, setBranchName] = useState('Main');
@@ -110,6 +114,24 @@ function SetupInner() {
         },
       });
       setAccessToken(r.accessToken);
+      // Optional logo upload — auth-gated so we can only do it now that
+      // we have a token. Failure here is non-fatal: the firm setup is
+      // already complete, the user can re-upload from /settings/branding.
+      if (logoFile) {
+        try {
+          const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+          await fetch(`${apiBase}/api/v1/tenant/logo`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': logoFile.type,
+              Authorization: `Bearer ${r.accessToken}`,
+            },
+            body: logoFile,
+          });
+        } catch {
+          // swallow — they can fix it later from settings
+        }
+      }
       router.push('/onboarding/secure');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed');
@@ -158,7 +180,7 @@ function SetupInner() {
                 {step === 1
                   ? 'Choose your password'
                   : step === 2
-                    ? 'Pick a theme'
+                    ? 'Pick a theme & logo'
                     : step === 3
                       ? 'First branch'
                       : 'All set'}
@@ -211,10 +233,62 @@ function SetupInner() {
             ) : null}
 
             {step === 2 ? (
-              <ThemeSwatchGrid
-                selected={branding.themeCode}
-                onSelect={(code) => setBranding({ ...branding, themeCode: code })}
-              />
+              <div className="space-y-5">
+                <ThemeSwatchGrid
+                  selected={branding.themeCode}
+                  onSelect={(code) => setBranding({ ...branding, themeCode: code })}
+                />
+                <div>
+                  <Label className="mb-1 block">Firm logo (optional)</Label>
+                  <p className="mb-2 text-xs text-[var(--color-text-muted)]">
+                    PNG, JPG, SVG, or WebP — up to 2 MB. Shown in the sidebar, sign-in
+                    page, and on every email we send. You can change it later in Settings.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    {logoFile ? (
+                      <img
+                        src={URL.createObjectURL(logoFile)}
+                        alt="Logo preview"
+                        className="h-12 w-12 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] object-contain p-1"
+                      />
+                    ) : (
+                      <div className="grid h-12 w-12 place-items-center rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
+                        none
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                      onChange={(e) => {
+                        setLogoErr(null);
+                        const f = e.target.files?.[0] ?? null;
+                        if (!f) {
+                          setLogoFile(null);
+                          return;
+                        }
+                        if (f.size > 2 * 1024 * 1024) {
+                          setLogoErr('Logo must be ≤ 2 MB.');
+                          return;
+                        }
+                        if (!/^image\/(png|jpeg|svg\+xml|webp)$/.test(f.type)) {
+                          setLogoErr('Use PNG, JPG, SVG, or WebP.');
+                          return;
+                        }
+                        setLogoFile(f);
+                      }}
+                      className="text-xs"
+                    />
+                    {logoFile ? (
+                      <Button variant="ghost" size="sm" onClick={() => setLogoFile(null)}>
+                        Remove
+                      </Button>
+                    ) : null}
+                  </div>
+                  {logoErr ? (
+                    <div className="mt-1 text-[11px] text-[var(--color-danger)]">{logoErr}</div>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
 
             {step === 3 ? (

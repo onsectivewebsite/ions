@@ -4,11 +4,36 @@ export function Logo({
   size = 28,
   withWordmark = true,
   className,
+  logoUrl,
+  brandName,
 }: {
   size?: number;
   withWordmark?: boolean;
   className?: string;
+  /** Firm-uploaded logo. When set we render this instead of the OnsecBoad
+   *  mark, and use brandName as the wordmark next to it. */
+  logoUrl?: string | null;
+  brandName?: string | null;
 }) {
+  if (logoUrl) {
+    return (
+      <span className={cn('inline-flex items-center gap-2.5', className)}>
+        <img
+          src={logoUrl}
+          alt={brandName ?? 'Firm logo'}
+          width={size}
+          height={size}
+          className="rounded-[var(--radius-md)] object-contain"
+          style={{ width: size, height: size }}
+        />
+        {withWordmark && brandName ? (
+          <span className="truncate text-[15px] font-semibold tracking-tight text-[var(--color-text)]">
+            {brandName}
+          </span>
+        ) : null}
+      </span>
+    );
+  }
   return (
     <span className={cn('inline-flex items-center gap-2.5', className)}>
       <svg
@@ -36,7 +61,7 @@ export function Logo({
       </svg>
       {withWordmark ? (
         <span className="text-[15px] font-semibold tracking-tight text-[var(--color-text)]">
-          OnsecBoad
+          {brandName ?? 'OnsecBoad'}
         </span>
       ) : null}
     </span>

@@ -123,17 +123,12 @@ export default function WalkinPage() {
     setCreatingLead(true);
     try {
       const token = getAccessToken();
+      // Phone-only stub: name/email/etc come from the intake submission.
+      // We omit the empty fields rather than sending null so we don't
+      // trip Zod's "expected string, received null" check.
       const lead = await rpcMutation<{ id: string }>(
         'lead.create',
-        {
-          phone,
-          source: 'walkin',
-          firstName: null,
-          lastName: null,
-          email: null,
-          language: null,
-          caseInterest: null,
-        },
+        { phone, source: 'walkin' },
         { token },
       );
       setIntakeContext({ leadId: lead.id, phone });
@@ -208,8 +203,8 @@ export default function WalkinPage() {
             <div className="space-y-4">
               {result.client ? (
                 <Card>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
+                  <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 flex-1">
                       <CardTitle>Existing client</CardTitle>
                       <div className="mt-3 text-lg font-semibold">
                         {[result.client.firstName, result.client.lastName].filter(Boolean).join(' ') ||
@@ -225,8 +220,9 @@ export default function WalkinPage() {
                         ) : null}
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-2">
+                    <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
                       <Button
+                        className="whitespace-nowrap"
                         onClick={() =>
                           setIntakeContext({
                             clientId: result.client!.id,
@@ -242,7 +238,7 @@ export default function WalkinPage() {
                         <FileText size={14} /> Send intake
                       </Button>
                       <Link href={`/leads/new?phone=${encodeURIComponent(result.client.phone)}`}>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" className="whitespace-nowrap">
                           Start manual visit <ArrowRight size={12} />
                         </Button>
                       </Link>
@@ -251,21 +247,25 @@ export default function WalkinPage() {
                 </Card>
               ) : (
                 <Card>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
+                  <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 flex-1">
                       <CardTitle>No prior record</CardTitle>
                       <p className="mt-2 text-sm text-[var(--color-text-muted)]">
                         Send the visitor an intake form first — they fill it on their own
                         device while waiting. Once submitted you can book the consultation.
                       </p>
                     </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <Button onClick={createLeadAndSendIntake} disabled={creatingLead}>
+                    <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+                      <Button
+                        onClick={createLeadAndSendIntake}
+                        disabled={creatingLead}
+                        className="whitespace-nowrap"
+                      >
                         {creatingLead ? <Spinner /> : <FileText size={14} />}
                         {creatingLead ? 'Preparing…' : 'Send intake form'}
                       </Button>
                       <Link href={`/leads/new?phone=${encodeURIComponent(phone)}`}>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" className="whitespace-nowrap">
                           <UserPlus size={12} /> New lead manually
                         </Button>
                       </Link>

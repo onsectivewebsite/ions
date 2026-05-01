@@ -33,19 +33,24 @@ const sourceSchema = z.enum([
   'import',
 ]);
 
+// Each field is `.nullable().optional()` so callers can either omit the
+// key (undefined) or send `null` to mean "no value yet" — common when the
+// walkin flow creates a phone-only stub before the intake form fills in
+// the rest. Without nullable() Zod rejects nulls with "expected string,
+// received null" and the form blocks.
 const baseLeadInput = z.object({
-  firstName: z.string().max(100).optional(),
-  lastName: z.string().max(100).optional(),
-  email: z.string().email().optional(),
-  phone: z.string().max(40).optional(),
+  firstName: z.string().max(100).nullable().optional(),
+  lastName: z.string().max(100).nullable().optional(),
+  email: z.string().email().nullable().optional(),
+  phone: z.string().max(40).nullable().optional(),
   source: sourceSchema.default('manual'),
-  language: z.string().max(10).optional(),
-  caseInterest: z.string().max(60).optional(),
-  notes: z.string().max(2000).optional(),
+  language: z.string().max(10).nullable().optional(),
+  caseInterest: z.string().max(60).nullable().optional(),
+  notes: z.string().max(2000).nullable().optional(),
   branchId: z.string().uuid().nullable().optional(),
   consentMarketing: z.boolean().default(false),
   payload: z.record(z.string(), z.unknown()).optional(),
-  externalId: z.string().max(120).optional(),
+  externalId: z.string().max(120).nullable().optional(),
 });
 
 /** Build a Prisma `where` that respects the caller's leads.read scope. */

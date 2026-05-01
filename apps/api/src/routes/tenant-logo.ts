@@ -66,18 +66,39 @@ export async function uploadLogoHandler(req: Request, res: Response): Promise<vo
         : contentType === 'image/webp'
           ? 'webp'
           : 'jpg';
-  const key = `tenant/${claims.tenantId}/branding/logo-${Date.now()}.${ext}`;
-  const upload = await uploadBuffer(key, body, contentType);
 
-  // The stored URL is a stable proxy URL. The actual R2 key lives in
-  // branding.logoR2Key so the proxy can re-fetch.
-  const proxyUrl = `${env.API_URL.replace(/\/$/, '')}/api/v1/tenant/${claims.tenantId}/logo`;
   const tenant = await prisma.tenant.findUnique({ where: { id: claims.tenantId } });
   const prevBranding = (tenant?.branding ?? {}) as Record<string, unknown>;
+
+  // Without R2 configured we'd silently store a logoR2Key that the proxy
+  // can never serve — the user uploads a logo and sees a broken image
+  // forever. So when R2 is in dry-run, fall back to a data URL stored
+  // directly in branding.logoUrl. Logos are small (≤2 MB) and the JSON
+  // column handles it. Real-R2 deployments still use the proxy path.
+  let proxyUrl: string;
+  let r2Key: string | null = null;
+  let bytes: number;
+  if (isDryRun()) {
+    proxyUrl = `data:${contentType};base64,${body.toString('base64')}`;
+    bytes = body.length;
+    logger.info(
+      { tenantId: claims.tenantId, bytes },
+      'logo upload: R2 not configured, storing as data URL',
+    );
+  } else {
+    const key = `tenant/${claims.tenantId}/branding/logo-${Date.now()}.${ext}`;
+    const upload = await uploadBuffer(key, body, contentType);
+    r2Key = key;
+    bytes = upload.bytes;
+    proxyUrl = `${env.API_URL.replace(/\/$/, '')}/api/v1/tenant/${claims.tenantId}/logo`;
+  }
+
   const newBranding = {
     ...prevBranding,
     logoUrl: proxyUrl,
-    logoR2Key: key,
+    // Carry the key only for real-R2 mode; clear it on data-URL mode so
+    // a stale key from a prior real-R2 run doesn't shadow the data URL.
+    logoR2Key: r2Key,
   };
   await prisma.tenant.update({
     where: { id: claims.tenantId },
@@ -92,13 +113,13 @@ export async function uploadLogoHandler(req: Request, res: Response): Promise<vo
       action: 'tenant.logo.upload',
       targetType: 'Tenant',
       targetId: claims.tenantId,
-      payload: { key, bytes: upload.bytes, contentType },
+      payload: { key: r2Key, bytes, contentType, mode: r2Key ? 'r2' : 'data-url' },
       ip: req.ip ?? null,
       userAgent: (req.headers['user-agent'] as string) ?? null,
     },
   });
 
-  res.json({ ok: true, url: proxyUrl, bytes: upload.bytes });
+  res.json({ ok: true, url: proxyUrl, bytes });
 }
 
 export async function logoProxyHandler(req: Request, res: Response): Promise<void> {
@@ -112,12 +133,14 @@ export async function logoProxyHandler(req: Request, res: Response): Promise<voi
     select: { branding: true, deletedAt: true },
   });
   if (!t || t.deletedAt) {
+    logger.info({ tenantId }, 'logo proxy: tenant missing or deleted');
     res.status(404).end();
     return;
   }
   const branding = (t.branding ?? {}) as Record<string, unknown>;
   const key = typeof branding.logoR2Key === 'string' ? branding.logoR2Key : null;
   if (!key) {
+    logger.info({ tenantId }, 'logo proxy: no logoR2Key set on branding');
     res.status(404).end();
     return;
   }
@@ -134,8 +157,16 @@ export async function logoProxyHandler(req: Request, res: Response): Promise<voi
     );
     return;
   }
-  const obj = await getObject(key);
+  let obj;
+  try {
+    obj = await getObject(key);
+  } catch (e) {
+    logger.warn({ err: e, tenantId, key }, 'logo proxy: R2 fetch threw');
+    res.status(502).end();
+    return;
+  }
   if (!obj) {
+    logger.warn({ tenantId, key }, 'logo proxy: R2 returned null (bucket misconfigured or object deleted)');
     res.status(404).end();
     return;
   }

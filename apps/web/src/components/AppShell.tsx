@@ -49,6 +49,9 @@ export type ShellUser = {
     level: 'info' | 'warning' | 'urgent';
     expiresAt?: string | null;
   } | null;
+  /** Firm logo URL — when present, the sidebar Logo renders this instead of
+   *  the default OnsecBoad mark. Pulled from tenant.branding.logoUrl. */
+  logoUrl?: string | null;
 };
 
 type Scope = false | 'own' | 'assigned' | 'case' | 'branch' | 'tenant';
@@ -112,13 +115,20 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
   const [fetchedAnnouncement, setFetchedAnnouncement] = useState<
     ShellUser['announcement'] | null
   >(null);
+  // Logo: when the host page didn't pass user.logoUrl, peel it out of the
+  // tenant.branding blob from user.me so the firm logo still appears in
+  // the sidebar across pages we haven't manually plumbed it through.
+  const [fetchedLogoUrl, setFetchedLogoUrl] = useState<string | null>(null);
   useEffect(() => {
     if (user.scope !== 'firm') return;
     const token = getAccessToken();
     if (!token) return;
     rpcQuery<{
       role?: { permissions: Permissions };
-      tenant?: { announcement?: ShellUser['announcement'] | null };
+      tenant?: {
+        announcement?: ShellUser['announcement'] | null;
+        branding?: { logoUrl?: string | null } | null;
+      };
     }>('user.me', undefined, { token })
       .then((m) => {
         if (user.permissions === undefined || user.permissions === null) {
@@ -127,12 +137,16 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
         if (user.announcement === undefined) {
           setFetchedAnnouncement(m.tenant?.announcement ?? null);
         }
+        if (user.logoUrl === undefined) {
+          setFetchedLogoUrl(m.tenant?.branding?.logoUrl ?? null);
+        }
       })
       .catch(() => {
         setFetchedPerms(null);
         setFetchedAnnouncement(null);
+        setFetchedLogoUrl(null);
       });
-  }, [user.scope, user.permissions, user.announcement]);
+  }, [user.scope, user.permissions, user.announcement, user.logoUrl]);
   // Close mobile drawer on route change.
   useEffect(() => {
     setMobileOpen(false);
@@ -158,7 +172,10 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
   const sidebarContent = (
     <>
       <div className="flex h-14 items-center justify-between px-5">
-        <Logo />
+        <Logo
+          logoUrl={user.logoUrl ?? fetchedLogoUrl}
+          brandName={user.scope === 'firm' ? user.contextLabel : null}
+        />
         <button
           type="button"
           onClick={() => setMobileOpen(false)}
