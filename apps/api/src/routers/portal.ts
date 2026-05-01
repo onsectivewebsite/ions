@@ -606,6 +606,33 @@ export const portalRouter = router({
       return updated;
     }),
 
+  // Cross-case upcoming appointments — drives the dashboard's
+  // "what's next" card. 60-day window, future only, all cases.
+  upcomingAppointments: clientProcedure.query(async ({ ctx }) => {
+    const from = new Date();
+    const to = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+    const items = await ctx.prisma.appointment.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        clientId: ctx.clientId,
+        scheduledAt: { gte: from, lte: to },
+        status: { in: ['SCHEDULED', 'CONFIRMED'] },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      select: {
+        id: true,
+        scheduledAt: true,
+        durationMin: true,
+        kind: true,
+        status: true,
+        caseType: true,
+        provider: { select: { name: true } },
+      },
+      take: 25,
+    });
+    return items;
+  }),
+
   // ─── Phase 7.2: Invoices + Stripe payment intents ─────────────────────
 
   invoicesList: clientProcedure.query(async ({ ctx }) => {

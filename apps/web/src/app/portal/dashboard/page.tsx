@@ -2,10 +2,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Briefcase, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Briefcase, Calendar, ShieldCheck } from 'lucide-react';
 import { Badge, Card, CardTitle, Skeleton, ThemeProvider, type Branding } from '@onsecboad/ui';
 import { rpcQuery } from '../../../lib/api';
 import { getPortalToken } from '../../../lib/portal-session';
+import { useRealtimePortal } from '../../../lib/portal-realtime';
 import { PortalShell } from '../../../components/portal/PortalShell';
 
 type Me = {
@@ -25,6 +26,16 @@ type CaseRow = {
   irccFileNumber: string | null;
   irccDecision: string | null;
   updatedAt: string;
+};
+
+type UpcomingAppt = {
+  id: string;
+  scheduledAt: string;
+  durationMin: number;
+  kind: string;
+  status: string;
+  caseType: string | null;
+  provider: { name: string };
 };
 
 const STATUS_TONE: Record<string, 'success' | 'warning' | 'neutral' | 'danger'> = {
@@ -49,7 +60,25 @@ export default function PortalDashboardPage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [cases, setCases] = useState<CaseRow[] | null>(null);
+  const [upcoming, setUpcoming] = useState<UpcomingAppt[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  async function loadAll(): Promise<void> {
+    const token = getPortalToken();
+    if (!token) return;
+    try {
+      const [m, c, u] = await Promise.all([
+        rpcQuery<Me>('portal.me', undefined, { token }),
+        rpcQuery<CaseRow[]>('portal.cases', undefined, { token }),
+        rpcQuery<UpcomingAppt[]>('portal.upcomingAppointments', undefined, { token }),
+      ]);
+      setMe(m);
+      setCases(c);
+      setUpcoming(u);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load');
+    }
+  }
 
   useEffect(() => {
     const token = getPortalToken();
@@ -57,20 +86,17 @@ export default function PortalDashboardPage() {
       router.replace('/portal/sign-in');
       return;
     }
-    Promise.all([
-      rpcQuery<Me>('portal.me', undefined, { token }),
-      rpcQuery<CaseRow[]>('portal.cases', undefined, { token }),
-    ])
-      .then(([m, c]) => {
-        setMe(m);
-        setCases(c);
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to load');
-        // Likely an expired token — bounce back to sign-in.
-        router.replace('/portal/sign-in');
-      });
+    loadAll().catch(() => router.replace('/portal/sign-in'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
+
+  // Refresh the upcoming list when the firm reschedules / confirms /
+  // cancels — keeps the dashboard accurate without a manual refresh.
+  useRealtimePortal((ev) => {
+    if (ev.type === 'appointment.created' || ev.type === 'case.status') {
+      void loadAll();
+    }
+  });
 
   if (!me || cases === null) {
     return (
@@ -107,6 +133,64 @@ export default function PortalDashboardPage() {
             Your data is private to your firm. If you have questions, contact{' '}
             <strong>{me.tenant.displayName}</strong> directly.
           </div>
+
+          {upcoming.length > 0 ? (
+            <Card>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle>Upcoming appointments</CardTitle>
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  Next {upcoming.length === 1 ? 'one' : upcoming.length}
+                </span>
+              </div>
+              <ul className="mt-3 divide-y divide-[var(--color-border-muted)]">
+                {upcoming.map((a) => {
+                  const when = new Date(a.scheduledAt);
+                  const isToday = when.toDateString() === new Date().toDateString();
+                  const dayLabel = isToday
+                    ? 'Today'
+                    : when.toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                      });
+                  const timeLabel = when.toLocaleTimeString(undefined, {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  });
+                  return (
+                    <li
+                      key={a.id}
+                      className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border-muted)] bg-[var(--color-surface-muted)] text-center">
+                          <Calendar size={14} className="text-[var(--color-text-muted)]" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium">
+                            {dayLabel} · {timeLabel}
+                          </div>
+                          <div className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+                            {a.kind}
+                            {a.caseType ? ` · ${a.caseType.replace(/_/g, ' ')}` : ''}
+                            {' · '}
+                            {a.provider.name} · {a.durationMin} min
+                          </div>
+                        </div>
+                      </div>
+                      <Badge tone={a.status === 'CONFIRMED' ? 'success' : 'neutral'}>
+                        {a.status === 'CONFIRMED' ? 'Confirmed' : 'Awaiting confirmation'}
+                      </Badge>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="mt-3 text-[11px] text-[var(--color-text-muted)]">
+                Need to reschedule or add another consultation? Open the file and use the
+                Appointments card.
+              </p>
+            </Card>
+          ) : null}
 
           {cases.length === 0 ? (
             <Card>
