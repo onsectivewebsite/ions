@@ -101,7 +101,7 @@ function NewCaseInner() {
     try {
       const token = getAccessToken();
       const r = await rpcMutation<{ id: string }>(
-        'case.create',
+        'cases.create',
         {
           clientId,
           caseType,
