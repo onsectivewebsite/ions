@@ -252,6 +252,23 @@ model TwoFactorRecoveryCode {
   @@index([userId, usedAt])
 }
 
+// Maps a OnsecBoad Appointment to its mirrored event ids on each
+// external calendar. Populated when push succeeds; consulted on
+// appointment.update / cancel so the external events update/delete too.
+model AppointmentExternalEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  appointmentId   String   @db.Uuid
+  appointment     Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  connectionId    String   @db.Uuid
+  connection      CalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  provider        String   // 'google' | 'outlook'
+  externalEventId String
+  createdAt       DateTime @default(now())
+
+  @@unique([appointmentId, connectionId])
+  @@index([appointmentId])
+}
+
 // External calendar busy slot — events fetched from connected calendars
 // (Google, Outlook). Used by the booking flow to warn about double-bookings
 // without blocking — lawyers sometimes intentionally overlap.
@@ -291,6 +308,7 @@ model CalendarConnection {
   updatedAt       DateTime  @updatedAt
 
   busySlots       CalendarBusySlot[]
+  externalEvents  AppointmentExternalEvent[]
 
   @@unique([userId, provider, externalAccount])
   @@index([userId, status])
@@ -801,6 +819,8 @@ model Appointment {
   createdBy       String     @db.Uuid
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
+
+  externalEvents  AppointmentExternalEvent[]
 
   @@index([tenantId, scheduledAt])
   @@index([tenantId, providerId, scheduledAt])

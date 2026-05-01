@@ -6,6 +6,7 @@ import {
   ShieldCheck,
   UserPlus,
   CreditCard,
+  Calendar,
   ArrowRight,
 } from 'lucide-react';
 import {
@@ -49,6 +50,23 @@ export default function OnboardingNextStepsPage() {
 
   const branding = me?.tenant?.branding ?? { themeCode: 'maple' as const };
 
+  // Detect provider from email domain so we can recommend the right
+  // calendar to connect first. Custom domains we can't tell — show
+  // both options.
+  const domain = (me?.email ?? '').split('@')[1]?.toLowerCase() ?? '';
+  const microsoftDomain =
+    domain === 'outlook.com' ||
+    domain === 'hotmail.com' ||
+    domain === 'live.com' ||
+    domain === 'msn.com' ||
+    domain.endsWith('.onmicrosoft.com');
+  const googleDomain = domain === 'gmail.com' || domain === 'googlemail.com';
+  const calendarRecommendation: 'outlook' | 'google' | null = microsoftDomain
+    ? 'outlook'
+    : googleDomain
+      ? 'google'
+      : null;
+
   return (
     <ThemeProvider branding={branding}>
       <main className="flex min-h-screen items-start justify-center bg-mesh px-4 py-16">
@@ -65,7 +83,7 @@ export default function OnboardingNextStepsPage() {
 
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              You&rsquo;re in. Three quick wins.
+              You&rsquo;re in. A few quick wins.
             </h1>
             <p className="mt-1 text-sm text-[var(--color-text-muted)]">
               All of this is optional — but you&rsquo;ll get value faster.
@@ -88,6 +106,32 @@ export default function OnboardingNextStepsPage() {
             href="/f/users"
             cta="Invite teammates"
           />
+
+          {calendarRecommendation ? (
+            <NextStep
+              icon={<Calendar size={18} />}
+              title={
+                calendarRecommendation === 'outlook'
+                  ? 'Connect Outlook Calendar'
+                  : 'Connect Google Calendar'
+              }
+              detail={
+                calendarRecommendation === 'outlook'
+                  ? `Looks like you use Microsoft (${domain}). Connect Outlook so booked consultations land in your calendar — and you see warnings if you double-book.`
+                  : `Looks like you use Google (${domain}). Connect Google Calendar so booked consultations land in your calendar — and you see warnings if you double-book.`
+              }
+              href="/settings/profile"
+              cta={calendarRecommendation === 'outlook' ? 'Connect Outlook' : 'Connect Google'}
+            />
+          ) : (
+            <NextStep
+              icon={<Calendar size={18} />}
+              title="Connect your calendar"
+              detail="Booked consultations land in your Google or Outlook calendar automatically — and you'll see warnings if you double-book."
+              href="/settings/profile"
+              cta="Connect calendar"
+            />
+          )}
 
           <NextStep
             icon={<CreditCard size={18} />}

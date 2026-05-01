@@ -424,6 +424,27 @@ export const appointmentRouter = router({
           userAgent: ctx.userAgent ?? null,
         },
       });
+
+      // Stage 17.3 — mirror the change to external calendars.
+      if (input.scheduledAt || input.durationMin || input.notes !== undefined) {
+        void (async () => {
+          const start = a.scheduledAt;
+          const end = new Date(start.getTime() + (a.durationMin ?? 30) * 60 * 1000);
+          const patch = {
+            startISO: start.toISOString(),
+            endISO: end.toISOString(),
+            description: a.notes ?? undefined,
+          };
+          const [{ updateAppointmentOnGoogle }, { updateAppointmentOnOutlook }] = await Promise.all([
+            import('../lib/google-calendar.js'),
+            import('../lib/outlook-calendar.js'),
+          ]);
+          await Promise.all([
+            updateAppointmentOnGoogle(a.id, patch),
+            updateAppointmentOnOutlook(a.id, patch),
+          ]);
+        })();
+      }
       return a;
     }),
 
@@ -480,6 +501,20 @@ export const appointmentRouter = router({
           userAgent: ctx.userAgent ?? null,
         },
       });
+
+      // Stage 17.3 — on cancel, delete the mirrored external events too.
+      if (input.to === 'CANCELLED') {
+        void (async () => {
+          const [{ deleteAppointmentOnGoogle }, { deleteAppointmentOnOutlook }] = await Promise.all([
+            import('../lib/google-calendar.js'),
+            import('../lib/outlook-calendar.js'),
+          ]);
+          await Promise.all([
+            deleteAppointmentOnGoogle(a.id),
+            deleteAppointmentOnOutlook(a.id),
+          ]);
+        })();
+      }
       return updated;
     }),
 

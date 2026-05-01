@@ -7,11 +7,13 @@ import { rpcMutation } from '../../lib/api';
 import { Logo } from '../../components/Logo';
 import { AuthHero } from '../../components/illustrations/AuthHero';
 import { PasskeyButton } from '../../components/PasskeyButton';
+import { LocaleSwitcher, useT } from '../../i18n';
 
 type SignInResult = { ticket: string; methods: ('totp' | 'email_otp')[] };
 
 export default function SignInPage() {
   const router = useRouter();
+  const { t } = useT();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -48,18 +50,21 @@ export default function SignInPage() {
         <div className="flex flex-col">
           <div className="mb-8 flex items-center justify-between">
             <Logo />
-            <span className="text-xs text-[var(--color-text-muted)]">
-              Need help? hello@onsective.com
-            </span>
+            <div className="flex items-center gap-3">
+              <LocaleSwitcher />
+              <span className="hidden text-xs text-[var(--color-text-muted)] sm:inline">
+                hello@onsective.com
+              </span>
+            </div>
           </div>
 
           <div className="my-auto">
             <div className="mx-auto w-full max-w-sm">
               <h1 className="text-3xl font-semibold tracking-tight text-[var(--color-text)]">
-                Welcome back
+                {t('signin.title')}
               </h1>
               <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-                Sign in to your OnsecBoad workspace.
+                {t('signin.subhead')}
               </p>
 
               <form onSubmit={onSubmit} className="mt-8 space-y-4">
@@ -122,7 +127,7 @@ export default function SignInPage() {
 
                 <Button type="submit" disabled={loading} className="w-full">
                   {loading ? <Spinner /> : null}
-                  Sign in
+                  {t('signin.submit')}
                   {!loading ? <ArrowRight size={14} /> : null}
                 </Button>
 
@@ -142,7 +147,7 @@ export default function SignInPage() {
                   onClick={() => router.push('/forgot-password')}
                   className="hover:text-[var(--color-text)]"
                 >
-                  Forgot password?
+                  {t('signin.forgot')}
                 </button>
                 <span className="inline-flex items-center gap-1">
                   <ShieldCheck size={12} />

@@ -1224,6 +1224,15 @@ function BookConsultDialog({
   const [intakeFilled, setIntakeFilled] = useState<boolean | null>(null);
   const [skipIntake, setSkipIntake] = useState(false);
   const [canOverride, setCanOverride] = useState(false);
+  type Conflict = {
+    id: string;
+    summary: string;
+    startsAt: string;
+    endsAt: string;
+    provider: string;
+    externalAccount: string;
+  };
+  const [conflicts, setConflicts] = useState<Conflict[] | null>(null);
 
   useEffect(() => {
     const t = getAccessToken();
@@ -1256,6 +1265,39 @@ function BookConsultDialog({
     setTime('10:00');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live conflict probe — re-fetch as provider/date/time/duration change.
+  useEffect(() => {
+    if (!providerId || !date || !time) {
+      setConflicts(null);
+      return;
+    }
+    const scheduledAt = new Date(`${date}T${time}:00`);
+    if (Number.isNaN(scheduledAt.getTime())) {
+      setConflicts(null);
+      return;
+    }
+    const t = getAccessToken();
+    let cancelled = false;
+    rpcQuery<{ conflicts: Conflict[] }>(
+      'appointment.checkConflicts',
+      {
+        providerId,
+        scheduledAt: scheduledAt.toISOString(),
+        durationMin: Number(duration) || 30,
+      },
+      { token: t },
+    )
+      .then((r) => {
+        if (!cancelled) setConflicts(r.conflicts);
+      })
+      .catch(() => {
+        if (!cancelled) setConflicts(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [providerId, date, time, duration]);
 
   async function save(): Promise<void> {
     if (!providerId || !date || !time) {
@@ -1306,6 +1348,27 @@ function BookConsultDialog({
           </button>
         </div>
         <div className="space-y-4">
+          {conflicts && conflicts.length > 0 ? (
+            <div className="rounded-[var(--radius-md)] border border-[var(--color-warning)]/40 bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-3 text-xs">
+              <div className="font-medium">
+                {conflicts.length} conflict{conflicts.length === 1 ? '' : 's'} on the
+                provider&rsquo;s connected calendar
+              </div>
+              <ul className="mt-2 space-y-1">
+                {conflicts.map((c) => (
+                  <li key={c.id} className="text-[var(--color-text-muted)]">
+                    <span className="font-medium text-[var(--color-text)]">{c.summary}</span>{' '}
+                    · {new Date(c.startsAt).toLocaleString()} →{' '}
+                    {new Date(c.endsAt).toLocaleTimeString()} · {c.provider}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[var(--color-text-muted)]">
+                You can still book — this is just a heads-up.
+              </p>
+            </div>
+          ) : null}
+
           {intakeFilled === false && kind !== 'walkin' ? (
             <div className="rounded-[var(--radius-md)] border border-[var(--color-warning)]/40 bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-3 text-xs">
               <div className="font-medium">Intake form not filled yet</div>

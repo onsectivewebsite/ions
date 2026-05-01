@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowRight, CheckCircle2, Lock, Sparkles } from 'lucide-react';
 import { Button, Card, CardBody, Input, Label } from '@onsecboad/ui';
 import { Logo } from '../../components/Logo';
+import { LocaleSwitcher, useT } from '../../i18n';
 
 /**
  * Public demo of the intake-form experience. No backend, no DB, no auth —
@@ -59,6 +60,7 @@ const FIELDS: Field[] = [
 ];
 
 export default function DemoIntakePage() {
+  const { t } = useT();
   const [values, setValues] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -141,26 +143,24 @@ export default function DemoIntakePage() {
           <ArrowLeft size={12} />
           Back
         </Link>
-        <Link href="/">
-          <Logo />
-        </Link>
+        <div className="flex items-center gap-3">
+          <LocaleSwitcher />
+          <Link href="/">
+            <Logo />
+          </Link>
+        </div>
       </div>
 
       <div className="mb-6 rounded-[var(--radius-md)] border border-[var(--color-primary)]/40 bg-[color-mix(in_srgb,var(--color-primary)_8%,transparent)] p-3 text-xs">
         <div className="flex items-center gap-2 font-semibold text-[var(--color-primary)]">
           <Sparkles size={12} />
-          You&rsquo;re seeing what an OnsecBoad client sees.
+          {t('demo.eyebrow')}
         </div>
-        <p className="mt-1 text-[var(--color-text-muted)]">
-          This is a sample intake form. Nothing here is saved — fill it in to feel the flow,
-          then sign up to build your own forms with the fields your firm needs.
-        </p>
+        <p className="mt-1 text-[var(--color-text-muted)]">{t('demo.note')}</p>
       </div>
 
-      <h1 className="text-2xl font-semibold tracking-tight">Sample Immigration Intake</h1>
-      <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-        Once submitted, the form locks and your immigration consultant takes over.
-      </p>
+      <h1 className="text-2xl font-semibold tracking-tight">{t('demo.title')}</h1>
+      <p className="mt-1 text-sm text-[var(--color-text-muted)]">{t('demo.subhead')}</p>
 
       <Card className="mt-6">
         <div className="space-y-5">
@@ -213,7 +213,7 @@ export default function DemoIntakePage() {
             In production, the form auto-locks once submitted.
           </div>
           <Button onClick={submit}>
-            Submit demo
+            {t('demo.submit')}
             <ArrowRight size={14} />
           </Button>
         </div>

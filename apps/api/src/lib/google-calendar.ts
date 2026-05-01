@@ -130,6 +130,60 @@ export type AppointmentToSync = {
   attendees?: string[];
 };
 
+/** Update mirrored events on every connected calendar. Best-effort. */
+export async function updateAppointmentOnGoogle(
+  appointmentId: string,
+  patch: Partial<AppointmentToSync>,
+): Promise<void> {
+  const links = await prisma.appointmentExternalEvent.findMany({
+    where: { appointmentId, provider: 'google' },
+    include: { connection: true },
+  });
+  for (const link of links) {
+    if (link.connection.status !== 'active') continue;
+    try {
+      const token = await getActiveAccessToken(link.connectionId);
+      const calId = link.connection.calendarId ?? 'primary';
+      const body: Record<string, unknown> = {};
+      if (patch.summary !== undefined) body.summary = patch.summary;
+      if (patch.description !== undefined) body.description = patch.description;
+      if (patch.startISO !== undefined) body.start = { dateTime: patch.startISO };
+      if (patch.endISO !== undefined) body.end = { dateTime: patch.endISO };
+      const res = await fetch(`${GOOGLE_EVENTS(calId)}/${encodeURIComponent(link.externalEventId)}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`Google PATCH ${res.status}`);
+    } catch (err) {
+      logger.warn({ err, link }, 'google calendar update failed');
+    }
+  }
+}
+
+/** Delete mirrored events on every connected calendar. Best-effort. */
+export async function deleteAppointmentOnGoogle(appointmentId: string): Promise<void> {
+  const links = await prisma.appointmentExternalEvent.findMany({
+    where: { appointmentId, provider: 'google' },
+    include: { connection: true },
+  });
+  for (const link of links) {
+    if (link.connection.status !== 'active') continue;
+    try {
+      const token = await getActiveAccessToken(link.connectionId);
+      const calId = link.connection.calendarId ?? 'primary';
+      const res = await fetch(
+        `${GOOGLE_EVENTS(calId)}/${encodeURIComponent(link.externalEventId)}`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (res.status !== 204 && !res.ok) throw new Error(`Google DELETE ${res.status}`);
+      await prisma.appointmentExternalEvent.delete({ where: { id: link.id } });
+    } catch (err) {
+      logger.warn({ err, link }, 'google calendar delete failed');
+    }
+  }
+}
+
 /**
  * Fire-and-forget push of one appointment to all of the user's active
  * Google Calendar connections. Errors are logged + recorded on the
@@ -167,6 +221,24 @@ export async function pushAppointmentToGoogle(
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`Google API ${res.status}: ${text.slice(0, 200)}`);
+      }
+      const created = (await res.json()) as { id?: string };
+      if (created.id) {
+        await prisma.appointmentExternalEvent.upsert({
+          where: {
+            appointmentId_connectionId: {
+              appointmentId: appt.appointmentId,
+              connectionId: c.id,
+            },
+          },
+          create: {
+            appointmentId: appt.appointmentId,
+            connectionId: c.id,
+            provider: 'google',
+            externalEventId: created.id,
+          },
+          update: { externalEventId: created.id },
+        });
       }
       await prisma.calendarConnection.update({
         where: { id: c.id },

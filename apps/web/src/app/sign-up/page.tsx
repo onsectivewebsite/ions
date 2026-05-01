@@ -6,6 +6,7 @@ import { Button, Card, Input, Spinner } from '@onsecboad/ui';
 import { rpcMutation } from '../../lib/api';
 import { Logo } from '../../components/Logo';
 import { FieldLabel, FieldError } from '../../components/forms';
+import { LocaleSwitcher, useT } from '../../i18n';
 
 type SignupResp = {
   ok: true;
@@ -24,6 +25,7 @@ function slugify(s: string): string {
 }
 
 export default function SignUpPage() {
+  const { t } = useT();
   const [legalName, setLegalName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [slug, setSlug] = useState('');
@@ -118,7 +120,10 @@ export default function SignUpPage() {
             <ArrowLeft size={12} />
             Back
           </Link>
-          <Logo />
+          <div className="flex items-center gap-3">
+            <LocaleSwitcher />
+            <Logo />
+          </div>
         </div>
 
         <Card>
@@ -127,9 +132,9 @@ export default function SignUpPage() {
               <Sparkles size={18} />
             </div>
             <div>
-              <h1 className="text-xl font-semibold tracking-tight">Start your free trial</h1>
+              <h1 className="text-xl font-semibold tracking-tight">{t('signup.title')}</h1>
               <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-                14 days, no credit card. We&rsquo;ll email you a link to finish setup.
+                {t('signup.subhead')}
               </p>
             </div>
           </div>
@@ -137,7 +142,7 @@ export default function SignUpPage() {
           <form onSubmit={submit} className="mt-6 space-y-4">
             <div>
               <FieldLabel htmlFor="ln" required>
-                Firm legal name
+                {t('signup.legalName')}
               </FieldLabel>
               <Input
                 id="ln"
@@ -153,7 +158,7 @@ export default function SignUpPage() {
 
             <div>
               <FieldLabel htmlFor="dn" required>
-                Display name (what clients see)
+                {t('signup.displayName')}
               </FieldLabel>
               <Input
                 id="dn"
@@ -166,7 +171,7 @@ export default function SignUpPage() {
 
             <div>
               <FieldLabel htmlFor="slug" required>
-                Workspace URL slug
+                {t('signup.slug')}
               </FieldLabel>
               <div className="flex items-center gap-1">
                 <span className="text-xs text-[var(--color-text-muted)]">
@@ -189,7 +194,7 @@ export default function SignUpPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <FieldLabel htmlFor="cn" required>
-                  Your name
+                  {t('signup.contactName')}
                 </FieldLabel>
                 <Input
                   id="cn"
@@ -201,7 +206,7 @@ export default function SignUpPage() {
               </div>
               <div>
                 <FieldLabel htmlFor="ce" required>
-                  Your email
+                  {t('signup.contactEmail')}
                 </FieldLabel>
                 <Input
                   id="ce"
@@ -222,14 +227,14 @@ export default function SignUpPage() {
 
             <Button type="submit" disabled={busy} className="w-full">
               {busy ? <Spinner /> : null}
-              Send setup email
+              {t('signup.submit')}
               <ArrowRight size={14} />
             </Button>
 
             <p className="text-center text-[11px] text-[var(--color-text-muted)]">
-              By signing up you agree to our terms. Already have an account?{' '}
+              {t('signup.terms')}{' '}
               <Link href="/sign-in" className="hover:underline">
-                Sign in
+                {t('signup.signin')}
               </Link>
               .
             </p>

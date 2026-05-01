@@ -130,6 +130,62 @@ export type AppointmentToSync = {
   attendees?: string[];
 };
 
+export async function updateAppointmentOnOutlook(
+  appointmentId: string,
+  patch: Partial<AppointmentToSync>,
+): Promise<void> {
+  const links = await prisma.appointmentExternalEvent.findMany({
+    where: { appointmentId, provider: 'outlook' },
+    include: { connection: true },
+  });
+  for (const link of links) {
+    if (link.connection.status !== 'active') continue;
+    try {
+      const token = await getActiveAccessToken(link.connectionId);
+      const body: Record<string, unknown> = {};
+      if (patch.summary !== undefined) body.subject = patch.summary;
+      if (patch.description !== undefined) {
+        body.body = { contentType: 'text', content: patch.description };
+      }
+      if (patch.startISO !== undefined) {
+        body.start = { dateTime: patch.startISO, timeZone: 'UTC' };
+      }
+      if (patch.endISO !== undefined) {
+        body.end = { dateTime: patch.endISO, timeZone: 'UTC' };
+      }
+      const res = await fetch(`${MS_EVENTS}/${encodeURIComponent(link.externalEventId)}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`Graph PATCH ${res.status}`);
+    } catch (err) {
+      logger.warn({ err, link }, 'outlook update failed');
+    }
+  }
+}
+
+export async function deleteAppointmentOnOutlook(appointmentId: string): Promise<void> {
+  const links = await prisma.appointmentExternalEvent.findMany({
+    where: { appointmentId, provider: 'outlook' },
+    include: { connection: true },
+  });
+  for (const link of links) {
+    if (link.connection.status !== 'active') continue;
+    try {
+      const token = await getActiveAccessToken(link.connectionId);
+      const res = await fetch(
+        `${MS_EVENTS}/${encodeURIComponent(link.externalEventId)}`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (res.status !== 204 && !res.ok) throw new Error(`Graph DELETE ${res.status}`);
+      await prisma.appointmentExternalEvent.delete({ where: { id: link.id } });
+    } catch (err) {
+      logger.warn({ err, link }, 'outlook delete failed');
+    }
+  }
+}
+
 export async function pushAppointmentToOutlook(
   userId: string,
   appt: AppointmentToSync,
@@ -169,6 +225,24 @@ export async function pushAppointmentToOutlook(
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`Graph ${res.status}: ${text.slice(0, 200)}`);
+      }
+      const created = (await res.json()) as { id?: string };
+      if (created.id) {
+        await prisma.appointmentExternalEvent.upsert({
+          where: {
+            appointmentId_connectionId: {
+              appointmentId: appt.appointmentId,
+              connectionId: c.id,
+            },
+          },
+          create: {
+            appointmentId: appt.appointmentId,
+            connectionId: c.id,
+            provider: 'outlook',
+            externalEventId: created.id,
+          },
+          update: { externalEventId: created.id },
+        });
       }
       await prisma.calendarConnection.update({
         where: { id: c.id },
