@@ -41,6 +41,7 @@ import { aiAgentRouter } from './routers/ai-agent.js';
 import { pushRouter } from './routers/push.js';
 import { dataRightsRouter } from './routers/data-rights.js';
 import { suppressionRouter } from './routers/suppression.js';
+import { searchRouter } from './routers/search.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -86,6 +87,7 @@ export const appRouter = router({
   push: pushRouter,
   dataRights: dataRightsRouter,
   suppression: suppressionRouter,
+  search: searchRouter,
 });
 
 export type AppRouter = typeof appRouter;

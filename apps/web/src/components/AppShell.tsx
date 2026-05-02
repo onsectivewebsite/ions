@@ -31,6 +31,7 @@ import {
 import { Avatar, cn } from '@onsecboad/ui';
 import { Logo } from './Logo';
 import { Toaster } from './Toaster';
+import { CommandPalette } from './CommandPalette';
 import { rpcMutation, rpcQuery } from '../lib/api';
 import { getAccessToken, setAccessToken } from '../lib/session';
 
@@ -109,6 +110,21 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Cmd+K / Ctrl+K opens the global search palette. Firm scope only —
+  // search.global isn't exposed for platform admins. Mounted once at
+  // the shell level so every page gets the shortcut for free.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    if (user.scope !== 'firm') return;
+    function onKey(e: KeyboardEvent): void {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [user.scope]);
   // Self-fetch permissions + announcement for firm users when the host
   // page didn't pass them. Platform users have no permission gate.
   const [fetchedPerms, setFetchedPerms] = useState<Permissions | null>(null);
@@ -257,10 +273,18 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
       <div className="flex min-h-screen flex-col">
         <ImpersonationBanner />
         <AnnouncementBanner ann={user.announcement ?? fetchedAnnouncement ?? null} />
-        <TopBar user={user} onSignOut={signOut} onOpenMenu={() => setMobileOpen(true)} />
+        <TopBar
+          user={user}
+          onSignOut={signOut}
+          onOpenMenu={() => setMobileOpen(true)}
+          onOpenPalette={() => setPaletteOpen(true)}
+        />
         <main className="flex-1 px-4 py-6 sm:px-6 md:px-8 md:py-8">{children}</main>
       </div>
       {user.scope === 'firm' ? <Toaster /> : null}
+      {user.scope === 'firm' ? (
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      ) : null}
     </div>
   );
 }
@@ -324,10 +348,12 @@ function TopBar({
   user,
   onSignOut,
   onOpenMenu,
+  onOpenPalette,
 }: {
   user: ShellUser;
   onSignOut: () => void;
   onOpenMenu: () => void;
+  onOpenPalette: () => void;
 }) {
   function openSupport(): void {
     if (typeof window === 'undefined') return;
@@ -347,20 +373,23 @@ function TopBar({
       >
         <Menu size={18} />
       </button>
-      <div className="relative w-full max-w-md">
+      <button
+        type="button"
+        onClick={onOpenPalette}
+        className="relative w-full max-w-md"
+        aria-label="Open search (Ctrl+K)"
+      >
         <Search
           size={14}
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]"
         />
-        <input
-          type="search"
-          placeholder="Search clients, cases, leads…"
-          className="h-9 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] pl-8 pr-3 text-sm placeholder:text-[var(--color-text-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus)] sm:pr-12"
-        />
+        <span className="flex h-9 w-full items-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] pl-8 pr-3 text-left text-sm text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] sm:pr-12">
+          Search clients, cases, leads…
+        </span>
         <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 hidden rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-muted)] sm:inline-block">
           ⌘K
         </kbd>
-      </div>
+      </button>
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-2">
         <button
