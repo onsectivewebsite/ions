@@ -129,15 +129,35 @@ export const documentCollectionRouter = router({
       });
       if (!collection || collection.tenantId !== ctx.tenantId)
         throw new TRPCError({ code: 'NOT_FOUND' });
-      if (collection.status !== 'DRAFT') {
+      if (collection.status === 'LOCKED') {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: 'Cannot edit items after the collection has been sent.',
+          message: 'Collection is locked — unlock before editing items.',
         });
       }
+      // SENT / UNLOCKED collections can still have items added or removed;
+      // the public token stays valid and the client sees the new list on
+      // their next visit. Uploads against keys that no longer exist remain
+      // visible to staff but are flagged as orphaned in the UI.
       const updated = await ctx.prisma.documentCollection.update({
         where: { id: collection.id },
         data: { itemsJson: input.itemsJson as unknown as Prisma.InputJsonValue },
+      });
+      await ctx.prisma.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorId: ctx.session.sub,
+          actorType: 'USER',
+          action: 'documentCollection.editItems',
+          targetType: 'DocumentCollection',
+          targetId: collection.id,
+          payload: {
+            itemCount: input.itemsJson.length,
+            statusAtEdit: collection.status,
+          },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent ?? null,
+        },
       });
       return updated;
     }),

@@ -1,12 +1,13 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Calendar, ChevronLeft, ChevronRight, Clock, User } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, Search, User } from 'lucide-react';
 import {
   Badge,
   Button,
   Card,
   CardTitle,
+  Input,
   Skeleton,
   ThemeProvider,
   type Branding,
@@ -69,6 +70,10 @@ export default function AppointmentsPage() {
   const [externalBusy, setExternalBusy] = useState<ExternalBusy[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerFilter, setProviderFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<Appointment['status'] | ''>('');
+  const [branchFilter, setBranchFilter] = useState<string>('');
+  const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([]);
+  const [search, setSearch] = useState('');
   const [view, setView] = useState<'day' | 'week'>('week');
   const [anchor, setAnchor] = useState<Date>(startOfDay(new Date()));
   const [selected, setSelected] = useState<Appointment | null>(null);
@@ -84,11 +89,16 @@ export default function AppointmentsPage() {
     const token = getAccessToken();
     if (!token) return;
     try {
-      const [m, list, users, busy] = await Promise.all([
+      const [m, list, users, busy, branchList] = await Promise.all([
         rpcQuery<Me>('user.me', undefined, { token }),
         rpcQuery<Appointment[]>(
           'appointment.list',
-          { ...range, providerId: providerFilter || undefined },
+          {
+            ...range,
+            providerId: providerFilter || undefined,
+            status: statusFilter || undefined,
+            branchId: branchFilter || undefined,
+          },
           { token },
         ),
         rpcQuery<Paged<Provider & { branchId: string | null; status: string }>>(
@@ -101,6 +111,11 @@ export default function AppointmentsPage() {
           { ...range, providerId: providerFilter || undefined },
           { token },
         ).catch(() => ({ items: [] as ExternalBusy[] })),
+        rpcQuery<Array<{ id: string; name: string }>>(
+          'branch.list',
+          undefined,
+          { token },
+        ).catch(() => [] as Array<{ id: string; name: string }>),
       ]);
       if (m.kind !== 'firm') {
         router.replace('/dashboard');
@@ -110,6 +125,7 @@ export default function AppointmentsPage() {
       setItems(list);
       setProviders(users.items.filter((u) => u.status === 'ACTIVE'));
       setExternalBusy(busy.items);
+      setBranches(branchList);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     }
@@ -123,7 +139,7 @@ export default function AppointmentsPage() {
     }
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router, range.from, range.to, providerFilter]);
+  }, [router, range.from, range.to, providerFilter, statusFilter, branchFilter]);
 
   // Live refresh on appointment.created / appointment.outcome.
   useRealtime((ev) => {
@@ -146,10 +162,25 @@ export default function AppointmentsPage() {
     );
   }
 
-  // Group by day for the agenda view.
+  // Group by day for the agenda view. Apply the client-name search filter
+  // here so users see results live as they type without round-tripping
+  // to the API.
+  const filteredItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((a) => {
+      const subject = a.client
+        ? `${a.client.firstName ?? ''} ${a.client.lastName ?? ''} ${a.client.phone ?? ''}`
+        : a.lead
+          ? `${a.lead.firstName ?? ''} ${a.lead.lastName ?? ''} ${a.lead.phone ?? ''}`
+          : '';
+      return subject.toLowerCase().includes(q);
+    });
+  }, [items, search]);
+
   const days = view === 'day' ? [anchor] : Array.from({ length: 7 }, (_, i) => addDays(anchor, i));
   const byDay = new Map<string, Appointment[]>();
-  for (const a of items) {
+  for (const a of filteredItems) {
     const k = startOfDay(new Date(a.scheduledAt)).toISOString();
     if (!byDay.has(k)) byDay.set(k, []);
     byDay.get(k)!.push(a);
@@ -175,7 +206,19 @@ export default function AppointmentsPage() {
                 Consultations, follow-ups, walk-ins. Book new appointments from a lead detail page.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search
+                  size={12}
+                  className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]"
+                />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search client / lead name"
+                  className="h-9 pl-7 text-xs"
+                />
+              </div>
               <select
                 className="h-9 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-xs"
                 value={providerFilter}
@@ -188,6 +231,34 @@ export default function AppointmentsPage() {
                   </option>
                 ))}
               </select>
+              <select
+                className="h-9 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-xs"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as Appointment['status'] | '')}
+              >
+                <option value="">All statuses</option>
+                <option value="SCHEDULED">Scheduled</option>
+                <option value="CONFIRMED">Confirmed</option>
+                <option value="ARRIVED">Arrived</option>
+                <option value="IN_PROGRESS">In progress</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="CANCELLED">Cancelled</option>
+                <option value="NO_SHOW">No-show</option>
+              </select>
+              {branches.length > 1 ? (
+                <select
+                  className="h-9 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-xs"
+                  value={branchFilter}
+                  onChange={(e) => setBranchFilter(e.target.value)}
+                >
+                  <option value="">All branches</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <div className="flex items-center gap-1 rounded-[var(--radius-pill)] border border-[var(--color-border)] p-1 text-xs">
                 {(['day', 'week'] as const).map((v) => (
                   <button

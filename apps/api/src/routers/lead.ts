@@ -428,6 +428,68 @@ export const leadRouter = router({
       return { ok: true };
     }),
 
+  /**
+   * Find dupes — group leads by phone or email and return groups with 2+
+   * leads. Used by the /leads UI to surface mergeable rows. Excludes
+   * already-deleted leads. Returns up to 50 groups.
+   */
+  findDuplicates: requirePermission('leads', 'read').query(async ({ ctx }) => {
+    const where = leadReadWhere(ctx);
+    // Pull non-null phone/email rows up to a sane cap; do the grouping
+    // in Node so we can dedupe on lower-cased email + bare-digit phone.
+    const all = await ctx.prisma.lead.findMany({
+      where: {
+        ...where,
+        OR: [{ phone: { not: null } }, { email: { not: null } }],
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        email: true,
+        status: true,
+        source: true,
+        createdAt: true,
+        assignedTo: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+    });
+    const groups = new Map<string, typeof all>();
+    function pushKey(key: string, lead: (typeof all)[number]): void {
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(lead);
+    }
+    for (const l of all) {
+      if (l.email) pushKey(`e:${l.email.toLowerCase().trim()}`, l);
+      if (l.phone) pushKey(`p:${l.phone.replace(/\D/g, '')}`, l);
+    }
+    const dupes: Array<{
+      key: string;
+      kind: 'phone' | 'email';
+      value: string;
+      leads: typeof all;
+    }> = [];
+    const seen = new Set<string>();
+    for (const [key, leads] of groups) {
+      if (leads.length < 2) continue;
+      // De-dup across both keys: a lead matching another by phone AND
+      // email shouldn't be reported twice. Use the smallest lead-id-set
+      // signature as the seen marker.
+      const sig = leads
+        .map((l) => l.id)
+        .sort()
+        .join(',');
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      const kind: 'phone' | 'email' = key.startsWith('p:') ? 'phone' : 'email';
+      dupes.push({ key, kind, value: key.slice(2), leads });
+      if (dupes.length >= 50) break;
+    }
+    return { groups: dupes };
+  }),
+
   merge: requirePermission('leads', 'write')
     .input(z.object({ fromId: z.string().uuid(), toId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {

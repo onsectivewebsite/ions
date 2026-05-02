@@ -5,18 +5,24 @@ import {
   Copy,
   Download,
   FileUp,
+  Pencil,
+  Plus,
   Sparkles,
   Lock,
   Mail,
   MessageSquare,
   Send,
+  Trash2,
   Unlock,
+  X,
 } from 'lucide-react';
 import {
   Badge,
   Button,
   Card,
   CardTitle,
+  Input,
+  Label,
   Spinner,
 } from '@onsecboad/ui';
 import { rpcMutation, rpcQuery } from '../../lib/api';
@@ -186,6 +192,7 @@ export function DocumentsCard({
 
   const isLocked = collection.status === 'LOCKED';
   const requiredOk = collection.requiredDone === collection.requiredCount;
+  const [editOpen, setEditOpen] = useState(false);
 
   return (
     <Card>
@@ -240,6 +247,9 @@ export function DocumentsCard({
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => send('none')}>
             <Send size={12} /> Generate link only
           </Button>
+          <Button size="sm" variant="ghost" disabled={busy} className="ml-auto" onClick={() => setEditOpen(true)}>
+            <Pencil size={12} /> Edit items
+          </Button>
         </div>
       ) : (
         <div className="mt-4 flex items-center gap-2 border-t border-[var(--color-border-muted)] pt-3">
@@ -273,7 +283,208 @@ export function DocumentsCard({
           {collection.requiredCount - collection.requiredDone} required item(s) still missing.
         </p>
       ) : null}
+
+      {editOpen ? (
+        <EditItemsDialog
+          caseId={caseId}
+          items={collection.items}
+          onClose={() => setEditOpen(false)}
+          onSaved={async () => {
+            setEditOpen(false);
+            await load();
+          }}
+          onError={onError}
+        />
+      ) : null}
     </Card>
+  );
+}
+
+type EditableItem = {
+  key: string;
+  label: string;
+  description?: string;
+  required: boolean;
+};
+
+function EditItemsDialog({
+  caseId,
+  items,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  caseId: string;
+  items: Item[];
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+  onError: (m: string) => void;
+}) {
+  const [draft, setDraft] = useState<EditableItem[]>(() =>
+    items.map((i) => ({
+      key: i.key,
+      label: i.label,
+      description: i.description ?? '',
+      required: !!i.required,
+    })),
+  );
+  const [busy, setBusy] = useState(false);
+
+  function makeKey(label: string): string {
+    return label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 60) || `item_${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  function add(): void {
+    const label = 'New item';
+    setDraft((d) => [
+      ...d,
+      { key: `${makeKey(label)}_${d.length + 1}`, label, description: '', required: false },
+    ]);
+  }
+
+  function patch(idx: number, patch: Partial<EditableItem>): void {
+    setDraft((d) => {
+      const next = [...d];
+      next[idx] = { ...next[idx]!, ...patch };
+      return next;
+    });
+  }
+
+  function remove(idx: number): void {
+    setDraft((d) => d.filter((_, i) => i !== idx));
+  }
+
+  async function save(): Promise<void> {
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      // Re-derive keys from labels for any items where the user changed
+      // the label but the key is still the default placeholder, so the
+      // saved keys stay readable. Existing keys (already-uploaded items)
+      // we leave alone to preserve the link to existing uploads.
+      const existingKeys = new Set(items.map((i) => i.key));
+      const itemsJson = draft.map((d) => ({
+        key: existingKeys.has(d.key) ? d.key : makeKey(d.label),
+        label: d.label.trim() || 'Untitled',
+        description: d.description?.trim() || undefined,
+        required: d.required,
+      }));
+      // Defend against duplicate keys on the wire (Zod would reject them
+      // anyway but the error is uglier than a client-side prevent).
+      const seen = new Set<string>();
+      for (const it of itemsJson) {
+        if (seen.has(it.key)) {
+          onError(`Two items have the same key "${it.key}". Rename one.`);
+          setBusy(false);
+          return;
+        }
+        seen.add(it.key);
+      }
+      await rpcMutation('documentCollection.editItems', { caseId, itemsJson }, { token });
+      await onSaved();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-12">
+      <Card className="w-full max-w-2xl">
+        <div className="flex items-center justify-between border-b border-[var(--color-border-muted)] pb-3">
+          <CardTitle>Edit document checklist</CardTitle>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-[var(--radius-md)] p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <p className="mt-3 text-xs text-[var(--color-text-muted)]">
+          Add or remove items even after the link is sent. The client&apos;s upload page
+          updates on their next visit. Removing an item that&apos;s already been uploaded
+          leaves the file in place but unreferenced — re-add the item later if you need it
+          back.
+        </p>
+
+        <div className="mt-4 space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+          {draft.length === 0 ? (
+            <p className="text-sm text-[var(--color-text-muted)]">
+              No items. Click <span className="font-medium">Add item</span> below.
+            </p>
+          ) : (
+            draft.map((d, idx) => (
+              <div
+                key={idx}
+                className="rounded-[var(--radius-md)] border border-[var(--color-border-muted)] p-3"
+              >
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
+                  <div>
+                    <Label htmlFor={`it-label-${idx}`} className="text-xs">
+                      Label
+                    </Label>
+                    <Input
+                      id={`it-label-${idx}`}
+                      value={d.label}
+                      onChange={(e) => patch(idx, { label: e.target.value })}
+                      placeholder="e.g. Passport bio page"
+                      maxLength={200}
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <label className="inline-flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={d.required}
+                        onChange={(e) => patch(idx, { required: e.target.checked })}
+                        className="h-4 w-4 cursor-pointer accent-[var(--color-primary)]"
+                      />
+                      Required
+                    </label>
+                    <Button size="sm" variant="ghost" onClick={() => remove(idx)} disabled={busy}>
+                      <Trash2 size={12} />
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <Label htmlFor={`it-desc-${idx}`} className="text-xs">
+                    Description (optional)
+                  </Label>
+                  <Input
+                    id={`it-desc-${idx}`}
+                    value={d.description ?? ''}
+                    onChange={(e) => patch(idx, { description: e.target.value })}
+                    placeholder="Anything the client should know about this item"
+                    maxLength={1000}
+                  />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="mt-3 flex items-center justify-between border-t border-[var(--color-border-muted)] pt-3">
+          <Button variant="ghost" size="sm" disabled={busy} onClick={add}>
+            <Plus size={12} /> Add item
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={save} disabled={busy || draft.length === 0}>
+              {busy ? <Spinner /> : null} Save changes
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </div>
   );
 }
 
